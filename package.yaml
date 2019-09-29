@@ -1,0 +1,33 @@
+name:                nixec
+version:             0.1.0.0
+synopsis:            A system for specifying evaluation scripts
+license:             BSD-3-Clause
+license-file:        LICENSE
+author:              Christian Gram Kalhauge
+maintainer:          christian@kalhauge.dk
+category:            Evaluation
+github:              kalhauge/nixec
+
+extra-source-files:  
+- CHANGELOG.md
+- README.md
+
+dependencies:
+  - base >= 4.12
+  - text
+
+library:
+  source-dirs: src
+
+ghc-options:
+ - -Wall
+ - -Wcompat
+ - -Wincomplete-record-updates
+ - -Wincomplete-uni-patterns
+ - -Wredundant-constraints
+
+executables:
+  nixec:
+    main: Main.hs
+    dependencies: []
+    source-dirs: app
