@@ -1,13 +1,15 @@
-{ mkDerivation, base, hpack, stdenv, text }:
+{ mkDerivation, base, filepath, hnix, hpack, lens, mtl, stdenv
+, text
+}:
 mkDerivation {
   pname = "nixec";
   version = "0.1.0.0";
   src = ./.;
   isLibrary = true;
   isExecutable = true;
-  libraryHaskellDepends = [ base text ];
+  libraryHaskellDepends = [ base filepath hnix lens mtl text ];
   libraryToolDepends = [ hpack ];
-  executableHaskellDepends = [ base text ];
+  executableHaskellDepends = [ base filepath hnix lens mtl text ];
   preConfigure = "hpack";
   homepage = "https://github.com/kalhauge/nixec#readme";
   description = "A system for specifying evaluation scripts";

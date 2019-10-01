@@ -28,7 +28,7 @@ tests of systems. The ultimate goal is that Nixec is going to be:
     -   (TODO) As a docker container: Pretty much the same idea.
 
 
-## Plan
+## Overview
 
 Nixec is written in Haskell and it contains of two parts. First, 
 an easy to use single entry point.
@@ -44,3 +44,19 @@ an easy to use single entry point.
     be executed as a nix-script and placed in the `result` folder.
 
 -   `nixec export [<target>]`: Export certain target. 
+
+### `Nixec`: the library
+
+### The `nixec` structure
+
+## Roadmap
+
+-    TODO: Create initial representation that can produce an execution tree.
+-    TODO: Compute the execution tree using nix.
+-    TODO: Create executable, which can set everything up.
+-    TODO: Work on export options.
+-    TODO: Write documentation.
+
+
+
+

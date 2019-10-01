@@ -1,48 +1,95 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Nixec where
 
 -- base
-import System.Exit
+import Prelude hiding (log)
+import Data.Maybe
 
--- text
-import qualified Data.Text as Text
+-- lens
+import Control.Lens
 
--- | The `Rule` is the basic item in `Nixec` this is what we are going to write
--- the whole program out of.
-data Rule = Rule 
-  { ruleName :: Text.Text
-  -- ^ Every rule needs a name
-  , ruleNeeds :: [ Requirement ]
-  -- ^ The rule then have some requirements
-  , ruleCommands :: [ Command ]
-  -- ^ The the rule has some commands to be executed
-  , ruleChecks :: [ Condition ]
-  -- ^ And finally a rule has post-conditions. If these are not meet, the rule
-  -- have failed to run.
-  }
+-- directory
+-- import System.Directory
 
-type NixPackage = Text.Text
+-- mtl
+import Control.Monad.State
 
-data Input 
-  = RuleInput Rule
-  | PackageInput NixPackage
-  | FileInput FilePath
+-- prettyprinter
+-- import Data.Text.Prettyprint.Doc
 
--- | The requirement are currently just depending on the output of other 
--- rules to be put in some directories.
-data Requirement
-  = LinkTo FilePath Input
-  | OnPath Input
+-- Nixec
+import Nixec.Data
+import Nixec.Rule hiding (rule)
+import Nixec.Command
+import Nixec.Monad
 
--- | A convinient wrapper around `LinkTo`
-(~>) :: Requirment
-fp ~> rule = 
-  LinkTo fp rule
+untar :: Input -> NixecM RuleName
+untar i =
+  rule "untar"
+  . cmd "tar"
+  $ commandArgs .= [ "-xf", Global i]
 
--- | Condition
-data Condition 
-  = FileExist FilePath
-  -- ^ Checks that a file exist after running the program
-  | ExitCodeWas ExitCode
-  -- ^ Check that the exit-code is `ExitCode`.
-  | Terminated
-  -- ^ Check that the program terminated.
+
+example :: IO ()
+example = defaultMain $ do
+  let predicates = FileInput "predicates"
+  benchmarks <- untar (FileInput "benchmarks.tar.gz")
+
+  let benchmarkNames = [ "mybenchmark" ]
+  benchs <- forM benchmarkNames $ \name -> scope name $ do
+
+    let benchmark = benchmarks <./> toFilePath name
+
+    let predicateNames = [ "cfr" , "fernflower"] -- , "procyon" ]
+    runs <- forM predicateNames $ \predicate -> scope predicate $ do
+      run <- rule "run" $ do
+        needs
+          [ "benchmark" ~> benchmark
+          , "predicate" ~> predicates <./> toFilePath predicate
+          ]
+        cmd "predicate" $ commandArgs .=
+          [ Input "benchmark/classes" , Input "benchmark/lib" ]
+
+      reduce <- onSuccess run $ do
+        let strategies = [ "classes" , "methods"] -- , "interfaces" ]
+
+        reductions <- forM strategies $ \strategy -> rule strategy $ do
+            needs
+              [ "benchmark" ~> benchmark
+              , "predicate" ~> predicates <./> toFilePath predicate
+              ]
+            path [ "haskellPackages.jreduce" ]
+            cmd "jreduce" $ commandArgs .=
+              [ "-W", Output "workfolder"
+              , "-p", "out,exit"
+              , "--total-time", "3600"
+              , "--strategy", RegularArg strategy
+              , "--output-file", Output "reduced"
+              , "--stdlib"
+              , "--cp", Input "benchmark/lib"
+              , Input "benchmark/classes"
+              , Input "predicate", "{}"
+              , "%" <.+> Input "benchmarks/lib"
+              ]
+
+        rule "reduce" $ do
+          needs [ toFilePath (topRuleName c) ~> c | c <- reductions ]
+          cmd "extract.py" $ commandArgs .=
+            [ Input $ toFilePath (topRuleName c) | c <- reductions ]
+          exists "result.csv"
+
+      collect $ do
+        needs [ "run" ~> run ]
+        joinCsv fields (maybeToList reduce) "result.csv"
+
+    collect $ do
+      joinCsv fields runs "result.csv"
+
+  collect $ do
+    joinCsv fields benchs "result.csv"
+
+  where
+    fields = [ "benchmark", "predicate", "strategy" ]
