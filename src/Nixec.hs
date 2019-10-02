@@ -7,6 +7,7 @@ module Nixec
   , module Nixec.Rule
   , module Nixec.Command
   , module Nixec.Monad
+  , module Control.Lens
   ) where
 
 -- base
