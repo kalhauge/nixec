@@ -9,6 +9,14 @@ main :: IO ()
 main = defaultMain $ do
   let predicates = FileInput "predicate"
   let benchmarks = PackageInput "benchmarks"
+  let env =
+        [ Env "CFR"
+          (FileInput "decompilers/cfr/cfr_0_132.jar" )
+        , Env "PROCYON"
+          (FileInput "decompilers/procyon/procyon-decompiler-0.5.30.jar" )
+        , Env "FERNFLOWER"
+          (FileInput "decompilers/fernflower/fernflower.jar" )
+        ]
 
   let benchmarkNames = [ "urlfc5806b04b_wlu_mstr_leveldb_java" ]
   benchs <- forM benchmarkNames $ \name -> scope name $ do
@@ -22,6 +30,8 @@ main = defaultMain $ do
           [ "benchmark" ~> benchmark
           , "predicate" ~> predicates <./> toFilePath predicate
           ]
+        path ["openjdk", "unzip"]
+        needs env
         cmd (Input "predicate") $ commandArgs .=
           [ Input "benchmark/classes" , Input "benchmark/lib" ]
 
@@ -29,27 +39,27 @@ main = defaultMain $ do
         let strategies = [ "classes" , "methods"] -- , "interfaces" ]
 
         reductions <- forM strategies $ \strategy -> rule strategy $ do
-            needs
-              [ "benchmark" ~> benchmark
-              , "predicate" ~> predicates <./> toFilePath predicate
-              ]
-            path [ "haskellPackages.jreduce" ]
-            cmd "jreduce" $ commandArgs .=
-              [ "-W", Output "workfolder"
-              , "-p", "out,exit"
-              , "--total-time", "3600"
-              , "--strategy", RegularArg strategy
-              , "--output-file", Output "reduced"
-              , "--stdlib"
-              , "--cp", Input "benchmark/lib"
-              , Input "benchmark/classes"
-              , Input "predicate", "{}"
-              , "%" <.+> Input "benchmarks/lib"
-              ]
+          needs
+            [ "benchmark" ~> benchmark
+            , "predicate" ~> predicates <./> toFilePath predicate
+            ]
+          needs env
+          path [ "haskellPackages.jreduce", "openjdk", "unzip"]
+          cmd "jreduce" $ commandArgs .=
+            [ "-W", Output "workfolder"
+            , "-p", "out,exit"
+            , "--total-time", "3600"
+            , "--strategy", RegularArg strategy
+            , "--output-file", Output "reduced"
+            , "--stdlib"
+            , "--cp", Input "benchmark/lib"
+            , Input "benchmark/classes"
+            , Input "predicate", "{}"
+            , "%" <.+> Input "benchmarks/lib"
+            ]
 
         rule "reduce" $ do
           needs [ toFilePath (topRuleName c) ~> c | c <- reductions ]
-          path [ "helpers" ]
           cmd "extract.py" $ commandArgs .=
             [ Input $ toFilePath (topRuleName c) | c <- reductions ]
           exists "result.csv"

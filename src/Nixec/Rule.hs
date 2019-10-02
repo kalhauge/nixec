@@ -69,8 +69,6 @@ makePrisms ''Condition
 ruleInputs :: Rule -> [Input]
 ruleInputs = toListOf
   $ ruleRequires.folded.(_LinkTo._2 <> _OnPath.to PackageInput <> _Env._2)
-  <> ruleCommands
-        .folded.commandArgs.folded.cosmosOf (_ConcatArg._2.folded)._Global
 
 type RuleM = State Rule
 

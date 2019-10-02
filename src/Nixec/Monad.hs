@@ -157,8 +157,37 @@ mainWithConfig cfg nm = do
       mapM_ (print . pretty) $ runReader (runListAction nm) cfg
     ExecAction name ->
       runReaderT (runExecAction name nm) cfg
-    _ -> undefined
+    ToNixAction name ->
+      runReaderT (runToNixAction name nm) cfg
 
+
+runToNixAction ::
+  forall env m. (MonadReader env m, HasConfig env, MonadIO m)
+  => RuleName
+  -> Nixec Rule
+  -> m ()
+runToNixAction target = void . iterM run where
+  run :: NixecF (m a) -> m a
+  run = \case
+    AddRule name r x -> do
+      rn <- newRuleName name
+      if rn == target
+        then do
+        liftIO $ print (ruleToNix rn r)
+        x rn
+        else x rn
+    Scope name nm x -> do
+      n <- view configScope
+      r <- local (configScope .~ name:n) $ iterM run nm
+      let rn = makeRuleName name n
+      if rn == target
+        then do
+        liftIO $ print (ruleToNix rn r)
+        x rn
+        else x rn
+    OnSuccess rn nm na _ -> do
+      _ <- iterM run nm
+      na (error $ "The success of '" ++ show (pretty rn) ++ "'cannot effect the number of rules.")
 
 
 runListAction :: (MonadReader env m, HasConfig env) => Nixec Rule -> m [RuleName]
@@ -253,7 +282,7 @@ runExecAction target nscript = do
           $ output </> "nixec.csv"
         case findOf folded (view $ statsRuleName.to (== rn)) vn of
           Just stat
-            | stat ^.statsStatus == Success -> do
+            | stat ^.statsExitCode == 0 -> do
               a <- iterM run nm
               na a
           _ -> n

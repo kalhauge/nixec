@@ -18,6 +18,7 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Control.Monad.IO.Class
 import Control.Monad
 import Data.Maybe
+-- import System.Exit
 import Data.Data
 
 -- prettyprinter
@@ -43,7 +44,10 @@ topRuleName :: RuleName -> Name
 topRuleName (RuleName n) = NonEmpty.head n
 
 ruleNameFromText :: Text.Text -> RuleName
-ruleNameFromText = RuleName . fromJust . NonEmpty.nonEmpty . Text.split (== ':')
+ruleNameFromText =
+  RuleName
+  . fromJust . NonEmpty.nonEmpty
+  . reverse . Text.split (== ':')
 
 displayRuleName :: RuleName -> Builder
 displayRuleName =
@@ -98,7 +102,8 @@ data Status
 
 data NixecStats = NixecStats
   { _statsRuleName :: RuleName
-  , _statsStatus  :: Status
+  -- , _statsStatus  :: Status
+  , _statsExitCode  :: Int
   }
 
 makeLenses ''NixecStats
@@ -117,5 +122,5 @@ instance Csv.FromField RuleName where
 instance Csv.FromNamedRecord NixecStats where
   parseNamedRecord m = do
     _statsRuleName <- m Csv..: "rule"
-    _statsStatus   <- m Csv..: "status"
+    _statsExitCode <- m Csv..: "exitcode"
     pure $ NixecStats {..}

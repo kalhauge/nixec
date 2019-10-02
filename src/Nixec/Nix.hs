@@ -3,20 +3,11 @@
 
 module Nixec.Nix where
 
--- base
-import Data.Maybe
-
 -- lens
 import Control.Lens
 
--- filepath
-import System.FilePath
-
 -- prettyprinter
 import Data.Text.Prettyprint.Doc
-
--- text
-import qualified Data.Text as Text
 
 -- nixec
 import Nixec.Rule
@@ -31,37 +22,9 @@ ruleNameToCallPackage :: RuleName -> Doc m
 ruleNameToCallPackage rn =
   "callPackage" <+> "./" <> ruleNameToNix rn <> ".nix" <+> "{}"
 
-renderCommands :: [Command] -> [Doc m]
-renderCommands commands =
-  [ "WORKDIR=''${1:-\"$(pwd)\"}"
-  , "INPUTDIR=''${1:-$WORKDIR}"
-  ] ++
-  [ hsep $ concat
-    [ [ commandArgToShell (c^.commandProgram) ]
-    , [ commandArgToShell ca | ca <- c^. commandArgs]
-    , [ ">>" <> (dquotes . pretty $ "$WORKDIR" </> fp)
-      | fp <- maybeToList (c ^. commandStdout)]
-    , if c ^. commandStderr == c ^. commandStdout && c ^. commandStderr /= Nothing
-      then [ "2>&1" ]
-      else [ "2>>" <> (dquotes . pretty $ "$WORKDIR" </> fp)
-           | fp <- maybeToList (c ^. commandStderr)]
-    ]
-  | c <- commands
-  ]
-  where
-    commandArgToShell = \case
-      Input fp -> dquotes . pretty $ "$INPUTDIR" </> fp
-      Output fp -> dquotes . pretty $ "$WORKDIR" </> fp
-      Global i -> inputToShell i
-      RegularArg i
-        | Text.any (\c -> c == ';' || c == ' ') i -> dquotes (pretty i)
-        | otherwise -> pretty i
-      ConcatArg t args ->
-        concatWith (\a b -> a <> pretty t <> b) . map commandArgToShell $ args
 
 nixToShell :: Doc m -> Doc m
 nixToShell = enclose "${" "}"
-
 
 inputToShell :: Input -> Doc m
 inputToShell = \case
@@ -116,7 +79,7 @@ ruleToNixDrv rn r =
   ("stdenv.mkDerivation" <+>) $
   attrset
   [ ( "name"
-    , dquotes (ruleNameToNix rn)
+    , nixstring (ruleNameToNix rn)
     )
   , ( "buildInputs"
     , encloseSep "[" "]" " "
@@ -125,10 +88,11 @@ ruleToNixDrv rn r =
       ]
     )
   , ( "command"
-    , "builtins.toFile" <+> dquotes "run.sh" <+> script (renderCommands (r ^. ruleCommands))
+    , "builtins.toFile" <+> dquotes "run.sh" <+>
+      script (renderCommands (r ^. ruleCommands))
     )
   , ( "unpackPhase"
-    , ( script . concat $
+    , ( script . vcat . concat $
         [ [ "ln -s" <+> inputToShell i <+> squotes (pretty fp)
           | LinkTo fp i <- r ^. ruleRequires
           ]
@@ -139,26 +103,39 @@ ruleToNixDrv rn r =
       )
     )
   , ( "buildPhase"
-    , script . concat $
+    , script . vcat . concat $
       [ [ "export " <> pretty n <> "=" <> dquotes (inputToShell i)
         | Env n i <- r ^. ruleRequires
         ]
-      , ["sh run.sh 2>&1 >>output.log ||:"]
+      -- , [ "timeout" <+> pretty timelimit ]
+      , [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
+        , splitcommand
+          [ "time", "--format", dquotes "$name,%e,%U,%S,%M,%x", "--output", "times.csv"
+          , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
+          , "||:"]
+        ]
       ]
     )
   , ( "installPhase"
-    , script
-      [ "shopt -s dotglob"
-      , "mkdir -p $out"
+    , script . vcat $
+      [ "mkdir -p $out"
       , "mv * $out"
       ]
     )
   ]
 
   where
-    script a = line <>
-      indent 2 (
-        enclose ("''" <> hardline) (hardline <> "''")
-        . align
-        $ vsep a
-        )
+    script :: Doc m -> Doc m
+    script a = vcat $ [ "''", indent 2 a , "''"]
+
+splitcommand :: [Doc m] -> Doc m
+splitcommand =
+  nest 2 . concatWith (\a b -> a <> group linesep <> b)
+  where linesep = (flatAlt (" \\" <> line) space)
+  -- group  <> group b)
+
+
+nixstring :: Doc m -> Doc m
+nixstring = enclose
+  (flatAlt "\"" ("''" <> hardline))
+  (flatAlt "\"" (hardline <> "''"))
