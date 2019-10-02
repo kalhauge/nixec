@@ -143,7 +143,7 @@ ruleToNixDrv rn r =
       [ [ "export " <> pretty n <> "=" <> dquotes (inputToShell i)
         | Env n i <- r ^. ruleRequires
         ]
-      , ["sh run.sh 2>&1 >>output.log"]
+      , ["sh run.sh 2>&1 >>output.log ||:"]
       ]
     )
   , ( "installPhase"
