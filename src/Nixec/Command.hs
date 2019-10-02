@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Nixec.Command where
 
 -- base
 import Data.String
+import Data.Data
 
 -- lens
 import Control.Lens
@@ -38,6 +40,7 @@ data CommandArgument
   -- ^ A simple string
   | ConcatArg  Text.Text [ CommandArgument ]
   -- ^ Concatenate the other arguments
+  deriving (Show, Eq, Ord, Data)
 
 instance IsString CommandArgument where
   fromString = RegularArg . Text.pack
@@ -46,3 +49,6 @@ instance IsString CommandArgument where
 cm1 <.+> cm2 = ConcatArg "" [cm1, cm2]
 
 makeClassy ''Command
+makePrisms ''CommandArgument
+
+instance Plated CommandArgument

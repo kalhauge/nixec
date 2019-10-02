@@ -1,14 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Nixec.Data where
 
+-- lens
+import Control.Lens
+
+-- cassava
+import qualified Data.Csv as Csv
+
 -- base
 import qualified Data.List.NonEmpty as NonEmpty
 import Control.Monad.IO.Class
+import Control.Monad
 import Data.Maybe
+import Data.Data
 
 -- prettyprinter
 import Data.Text.Prettyprint.Doc
@@ -22,7 +32,7 @@ type Name = Text.Text
 
 newtype RuleName = RuleName
   { unRuleName :: NonEmpty.NonEmpty Name
-  } deriving (Show, Eq, Ord)
+  } deriving (Show, Eq, Ord, Data)
 
 type Scope = [Name]
 
@@ -51,6 +61,9 @@ data Input
   | PackageInput Package
   | FileInput FilePath
   | InInput Input FilePath
+  deriving (Show, Eq, Ord, Data)
+
+makePrisms ''Input
 
 pkg :: Package -> Input
 pkg = PackageInput
@@ -76,3 +89,33 @@ infixl 5 <./>
 
 log :: MonadIO m => Builder -> m ()
 log = liftIO . LazyText.putStrLn . toLazyText
+
+data Status
+  = Success
+  | Failure
+  | Timeout
+  deriving (Eq, Ord, Show)
+
+data NixecStats = NixecStats
+  { _statsRuleName :: RuleName
+  , _statsStatus  :: Status
+  }
+
+makeLenses ''NixecStats
+
+instance Csv.FromField Status where
+  parseField = \case
+    "success" -> pure $ Success
+    "failure" -> pure $ Failure
+    "timeout" -> pure $ Timeout
+    _ -> mzero
+
+instance Csv.FromField RuleName where
+  parseField a =
+    ruleNameFromText <$> Csv.parseField a
+
+instance Csv.FromNamedRecord NixecStats where
+  parseNamedRecord m = do
+    _statsRuleName <- m Csv..: "rule"
+    _statsStatus   <- m Csv..: "status"
+    pure $ NixecStats {..}

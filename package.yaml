@@ -20,6 +20,10 @@ dependencies:
   - mtl
   - prettyprinter
   - directory
+  - free
+  - bytestring
+  - cassava
+  - typed-process
 
 library:
   source-dirs: src

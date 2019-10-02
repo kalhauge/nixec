@@ -2,7 +2,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Nixec where
+module Nixec
+  ( module Nixec.Data
+  , module Nixec.Rule
+  , module Nixec.Command
+  , module Nixec.Monad
+  ) where
 
 -- base
 import Prelude hiding (log)
@@ -26,22 +31,15 @@ import Nixec.Rule hiding (rule)
 import Nixec.Command
 import Nixec.Monad
 
-untar :: Input -> NixecM RuleName
-untar i =
-  rule "untar"
-  . cmd "tar"
-  $ commandArgs .= [ "-xf", Global i]
-
-
 example :: IO ()
 example = defaultMain $ do
-  let predicates = FileInput "predicates"
-  benchmarks <- untar (FileInput "benchmarks.tar.gz")
+  let predicates = FileInput "predicate"
+  let benchmarks = PackageInput "benchmarks"
 
-  let benchmarkNames = [ "mybenchmark" ]
+  let benchmarkNames = [ "urlfc5806b04b_wlu_mstr_leveldb_java" ]
   benchs <- forM benchmarkNames $ \name -> scope name $ do
 
-    let benchmark = benchmarks <./> toFilePath name
+    let benchmark = benchmarks <./> (toFilePath name ++ "_tgz-pJ8")
 
     let predicateNames = [ "cfr" , "fernflower"] -- , "procyon" ]
     runs <- forM predicateNames $ \predicate -> scope predicate $ do

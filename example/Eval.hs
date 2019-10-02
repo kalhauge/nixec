@@ -4,42 +4,38 @@ import Nixec
 
 main :: IO ()
 main = defaultMain $ do
-  benchs <- forM benchmarks $ \name -> scope name $ do
-    benchmark <- untar (FileInput "benchmarks.tar.gz") name
-    predicates <- load (FileInput "predicates")
+  let predicates = FileInput "predicate"
+  let benchmarks = PackageInput "benchmarks"
 
-    let predicates =
-          [ "cfr"
-          , "fernflower"
-          , "procyon"
-          ]
+  let benchmarkNames = [ "urlfc5806b04b_wlu_mstr_leveldb_java" ]
+  benchs <- forM benchmarkNames $ \name -> scope name $ do
 
-    runs <- forM predicates $ \predicate -> scope predicate $ do
-      run <- rule "run-predicate" $ do
+    let benchmark = benchmarks <./> (toFilePath name ++ "_tgz-pJ8")
+
+    let predicateNames = [ "cfr" , "fernflower"] -- , "procyon" ]
+    runs <- forM predicateNames $ \predicate -> scope predicate $ do
+      run <- rule "run" $ do
         needs
           [ "benchmark" ~> benchmark
-          , "predicate" ~> predicates <./> predicate
+          , "predicate" ~> predicates <./> toFilePath predicate
           ]
-        cmd "predicate" 
-          [ Input "benchmark/classes"
-          , Input "benchmark/lib"
-          ]
+        cmd "predicate" $ commandArgs .=
+          [ Input "benchmark/classes" , Input "benchmark/lib" ]
 
-      result <- onSuccess run $ do
-        let strategies = [ "classes" , "methods" , "interfaces" ]
+      reduce <- onSuccess run $ do
+        let strategies = [ "classes" , "methods"] -- , "interfaces" ]
 
-        computations <- forM strategies $ \strategy -> scope strategy $ do
-          rule "compute" $ do
+        reductions <- forM strategies $ \strategy -> rule strategy $ do
             needs
               [ "benchmark" ~> benchmark
-              , "predicate" ~> predicates <./> predicate
+              , "predicate" ~> predicates <./> toFilePath predicate
               ]
-            path [ pkgs "haskellPackages.jreduce" ]
-            cmd "jreduce"
+            path [ "haskellPackages.jreduce" ]
+            cmd "jreduce" $ commandArgs .=
               [ "-W", Output "workfolder"
               , "-p", "out,exit"
               , "--total-time", "3600"
-              , "--strategy", strategy
+              , "--strategy", RegularArg strategy
               , "--output-file", Output "reduced"
               , "--stdlib"
               , "--cp", Input "benchmark/lib"
@@ -48,16 +44,21 @@ main = defaultMain $ do
               , "%" <.+> Input "benchmarks/lib"
               ]
 
-        rule "post" $ do
-          needs [ ruleName c ~> c | c <- computations ]
-          cmd "extract.py" [ File (ruleName c) | c <- computations ]
+        rule "reduce" $ do
+          needs [ toFilePath (topRuleName c) ~> c | c <- reductions ]
+          cmd "extract.py" $ commandArgs .=
+            [ Input $ toFilePath (topRuleName c) | c <- reductions ]
           exists "result.csv"
 
-      join [run, result]
+      collect $ do
+        needs [ "run" ~> run ]
+        joinCsv fields (maybeToList reduce) "result.csv"
 
+    collect $ do
+      joinCsv fields runs "result.csv"
 
-    rule "post" $ do
-      joinCsv runs "result.csv"
+  collect $ do
+    joinCsv fields benchs "result.csv"
 
-  rule "post" $ do
-    joinCsv runs "result.csv"
+  where
+    fields = [ "benchmark", "predicate", "strategy" ]

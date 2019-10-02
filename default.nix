@@ -1,5 +1,6 @@
-{ mkDerivation, base, filepath, hnix, hpack, lens, mtl, stdenv
-, text
+{ mkDerivation, base, bytestring, cassava, directory, filepath
+, free, hpack, lens, mtl, prettyprinter, stdenv, text
+, typed-process
 }:
 mkDerivation {
   pname = "nixec";
@@ -7,9 +8,15 @@ mkDerivation {
   src = ./.;
   isLibrary = true;
   isExecutable = true;
-  libraryHaskellDepends = [ base filepath hnix lens mtl text ];
+  libraryHaskellDepends = [
+    base bytestring cassava directory filepath free lens mtl
+    prettyprinter text typed-process
+  ];
   libraryToolDepends = [ hpack ];
-  executableHaskellDepends = [ base filepath hnix lens mtl text ];
+  executableHaskellDepends = [
+    base bytestring cassava directory filepath free lens mtl
+    prettyprinter text typed-process
+  ];
   preConfigure = "hpack";
   homepage = "https://github.com/kalhauge/nixec#readme";
   description = "A system for specifying evaluation scripts";
