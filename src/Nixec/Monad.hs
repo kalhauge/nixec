@@ -115,7 +115,7 @@ parseConfig = do
       <> hidden
 
   _configAction <-
-    subparser . fold $
+    hsubparser . fold $
     [ command "list" $ info (pure ListAction)
       (progDesc "Print list of rules")
     , command "run" $ info

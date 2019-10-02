@@ -80,7 +80,7 @@ safe = do
 needs :: [ Requirement ] -> RuleM ()
 needs regs = ruleRequires %= (++ regs)
 
-cmd :: Text.Text -> State Command () -> RuleM ()
+cmd :: CommandArgument -> State Command () -> RuleM ()
 cmd name statecmd =
   ruleCommands %= (++ [ Command name [] Nothing Nothing &~ statecmd ])
 

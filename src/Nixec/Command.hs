@@ -18,13 +18,13 @@ import qualified Data.Text as Text
 import Nixec.Data
 
 data Command = Command
-  { _commandProgram :: !Text.Text
+  { _commandProgram :: !CommandArgument
   , _commandArgs    :: ![ CommandArgument ]
   , _commandStderr  :: !(Maybe FilePath)
   , _commandStdout  :: !(Maybe FilePath)
   }
 
-makeCommand :: Text.Text -> Command
+makeCommand :: CommandArgument -> Command
 makeCommand t =
   Command t [] Nothing Nothing
 
@@ -52,3 +52,16 @@ makeClassy ''Command
 makePrisms ''CommandArgument
 
 instance Plated CommandArgument
+
+commandArgumentInputs :: Fold CommandArgument Input
+commandArgumentInputs =
+  cosmosOf (_ConcatArg._2.folded)._Global
+
+commandInputs ::
+  (Semigroup (f Command), Contravariant f, Applicative f)
+  => (Input -> f Input)
+  -> Command
+  -> f Command
+commandInputs =
+  commandProgram.commandArgumentInputs
+  <> commandArgs.folded.commandArgumentInputs

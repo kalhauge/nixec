@@ -37,7 +37,7 @@ renderCommands commands =
   , "INPUTDIR=''${1:-$WORKDIR}"
   ] ++
   [ hsep $ concat
-    [ [ pretty (c^.commandProgram) ]
+    [ [ commandArgToShell (c^.commandProgram) ]
     , [ commandArgToShell ca | ca <- c^. commandArgs]
     , [ ">>" <> (dquotes . pretty $ "$WORKDIR" </> fp)
       | fp <- maybeToList (c ^. commandStdout)]

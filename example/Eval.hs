@@ -22,7 +22,7 @@ main = defaultMain $ do
           [ "benchmark" ~> benchmark
           , "predicate" ~> predicates <./> toFilePath predicate
           ]
-        cmd "predicate" $ commandArgs .=
+        cmd (Input "predicate") $ commandArgs .=
           [ Input "benchmark/classes" , Input "benchmark/lib" ]
 
       reduce <- onSuccess run $ do
@@ -49,6 +49,7 @@ main = defaultMain $ do
 
         rule "reduce" $ do
           needs [ toFilePath (topRuleName c) ~> c | c <- reductions ]
+          path [ "helpers" ]
           cmd "extract.py" $ commandArgs .=
             [ Input $ toFilePath (topRuleName c) | c <- reductions ]
           exists "result.csv"
