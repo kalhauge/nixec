@@ -15,6 +15,7 @@ module Nixec.Monad where
 -- base
 import Prelude hiding (log)
 import Data.Monoid
+import Data.Foldable
 -- import Control.Monad.Fail
 import qualified Data.List as List
 
@@ -23,6 +24,9 @@ import qualified Data.Csv as Csv
 
 -- typed-process
 import System.Process.Typed
+
+-- text
+import qualified Data.Text as Text
 
 -- free
 import Control.Monad.Free
@@ -108,10 +112,21 @@ parseConfig = do
       <> long "overlays"
       <> metavar "FILE"
       <> help "Nix overlays (default: 'overlay.nix')"
+      <> hidden
 
   _configAction <-
-    subparser $
-    command "list" (info (pure ListAction) (progDesc "Print greeting"))
+    subparser . fold $
+    [ command "list" $ info (pure ListAction)
+      (progDesc "Print list of rules")
+    , command "run" $ info
+      (ExecAction . ruleNameFromText . Text.pack <$>
+        strArgument (
+          metavar "RULE"
+            <> help "the rule to run."
+          )
+      )
+      (progDesc "run derivations")
+    ]
 
   pure $
     defaultConfig
