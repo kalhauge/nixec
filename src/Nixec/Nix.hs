@@ -110,7 +110,7 @@ ruleToNixDrv rn r =
       -- , [ "timeout" <+> pretty timelimit ]
       , [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
         , splitcommand
-          [ "time", "--format", dquotes "$name,%e,%U,%S,%M,%x", "--output", "times.csv"
+          [ "${time}/bin/time", "--format", dquotes "$name,%e,%U,%S,%M,%x", "--output", "times.csv"
           , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
           , "||:"]
         ]

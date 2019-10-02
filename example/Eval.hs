@@ -30,7 +30,7 @@ main = defaultMain $ do
           [ "benchmark" ~> benchmark
           , "predicate" ~> predicates <./> toFilePath predicate
           ]
-        path ["openjdk", "unzip"]
+        path ["openjdk", "unzip", "coreutils", "time"]
         needs env
         cmd (Input "predicate") $ commandArgs .=
           [ Input "benchmark/classes" , Input "benchmark/lib" ]
