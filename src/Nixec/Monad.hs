@@ -39,6 +39,9 @@ import System.Directory
 -- bytestring
 import qualified Data.ByteString.Lazy as BL
 
+-- optparse-applicative
+import Options.Applicative
+
 -- mtl
 import Control.Monad.Reader
 import Control.Monad.Writer
@@ -62,9 +65,18 @@ deriving instance (Functor NixecF)
 
 makeFree_ ''NixecF
 
-addRule :: MonadFree NixecF m => Name -> Rule -> m RuleName
-scope   :: MonadFree NixecF m => Name -> Nixec Rule -> m RuleName
+addRule   :: MonadFree NixecF m => Name -> Rule -> m RuleName
+scope     :: MonadFree NixecF m => Name -> Nixec Rule -> m RuleName
 onSuccess :: MonadFree NixecF m => RuleName -> Nixec a -> m (Maybe a)
+
+rule :: Name -> RuleM () -> Nixec RuleName
+rule n rulem = do
+  addRule n $ emptyRule &~ rulem
+
+-- | finish a scope
+collect :: RuleM () -> Nixec Rule
+collect rulem = do
+  return $ emptyRule &~ rulem
 
 data Action
   = ListAction
@@ -81,15 +93,59 @@ data Config = Config
 defaultConfig :: Config
 defaultConfig =
   Config
-  [] "example/_nixec"
-  [ "example/overlay.nix" ]
-  $ ExecAction (ruleNameFromText "urlfc5806b04b_wlu_mstr_leveldb_java:cfr:run")
+  [] "_nixec"
+  [ "overlay.nix" ]
+  $ ListAction
 
 makeClassy ''Config
 
-newRuleName :: (HasConfig env, MonadReader env m) => Name -> m RuleName
+parseConfig :: Parser Config
+parseConfig = do
+  _configOverlays <-
+    many $ strOption
+    ( short 'O'
+      <> long "overlays"
+      <> metavar "FILE"
+      <> help "Nix overlays (default:overlay.nix)"
+      <> value ["overlay.nix"]
+    )
+
+  _configAction <-
+    subparser $
+    command "list" (info (pure ListAction) (progDesc "Print greeting"))
+
+
+  pure $
+    defaultConfig
+    & configOverlays .~ _configOverlays
+    & configAction .~ _configAction
+ 
+
+newRuleName ::
+  (HasConfig env, MonadReader env m)
+  => Name
+  -> m RuleName
 newRuleName name = do
   makeRuleName name <$> view configScope
+
+-- | The entry point of `Nixec`
+defaultMain ::
+  Nixec Rule
+  -> IO ()
+defaultMain = do
+  config <- execParser $ info (parseConfig <**> helper) ( header "nixec-builder" )
+  mainWithConfig config
+
+mainWithConfig :: Config -> Nixec Rule -> IO ()
+mainWithConfig cfg nm = do
+  case cfg^.configAction of
+    ListAction -> do
+      mapM_ (print . pretty) $ runReader (runListAction nm) cfg
+    ExecAction name ->
+      runReaderT (runExecAction name nm) cfg
+    _ -> undefined
+
+
 
 runListAction :: (MonadReader env m, HasConfig env) => Nixec Rule -> m [RuleName]
 runListAction =
@@ -188,20 +244,6 @@ runExecAction target nscript = do
               na a
           _ -> n
 
--- | The entry point of `Nixec`
-defaultMain :: Nixec Rule -> IO ()
-defaultMain =
-  mainWithConfig defaultConfig
-
-mainWithConfig :: Config -> Nixec Rule -> IO ()
-mainWithConfig cfg nm = do
-  case cfg^.configAction of
-    ListAction -> do
-      mapM_ (print . pretty) $ runReader (runListAction nm) cfg
-    ExecAction name ->
-      runReaderT (runExecAction name nm) cfg
-    _ -> undefined
-
     -- ToNixAction n ->
     --   case findOf folded (view $ ruleName . to (==n)) rules of
     --     Just r ->
@@ -217,14 +259,6 @@ mainWithConfig cfg nm = do
   -- local (configScope %~ (name:))
 
 
-rule :: Name -> RuleM () -> Nixec RuleName
-rule n rulem = do
-  addRule n $ emptyRule &~ rulem
-
--- | finish a scope
-collect :: RuleM () -> Nixec Rule
-collect rulem = do
-  return $ emptyRule &~ rulem
 
 -- onSuccess :: RuleName -> NixecM a -> NixecM (Maybe a)
 -- onSuccess _ x =

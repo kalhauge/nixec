@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import Control.Monad
+import Data.Maybe
+
 import Nixec
 
 main :: IO ()
