@@ -139,7 +139,12 @@ ruleToNixDrv rn r =
       )
     )
   , ( "buildPhase"
-    , script [ "sh run.sh 2>&1 >>output.log"]
+    , script . concat $
+      [ [ "export " <> pretty n <> "=" <> dquotes (inputToShell i)
+        | Env n i <- r ^. ruleRequires
+        ]
+      , ["sh run.sh 2>&1 >>output.log"]
+      ]
     )
   , ( "installPhase"
     , script
@@ -153,7 +158,7 @@ ruleToNixDrv rn r =
   where
     script a = line <>
       indent 2 (
-        enclose ("''" <> softline) (softline <> "''")
+        enclose ("''" <> hardline) (hardline <> "''")
         . align
         $ vsep a
         )

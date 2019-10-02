@@ -37,6 +37,14 @@ example :: IO ()
 example = defaultMain $ do
   let predicates = FileInput "predicate"
   let benchmarks = PackageInput "benchmarks"
+  let env =
+        [ Env "CFR"
+          (FileInput "decompilers/cfr/cfr_0_132.jar" )
+        , Env "PROCYON"
+          (FileInput "decompilers/procyon/procyon-decompiler-0.5.30.jar" )
+        , Env "FERNFLOWER"
+          (FileInput "decompilers/fernflower/fernflower.jar" )
+        ]
 
   let benchmarkNames = [ "urlfc5806b04b_wlu_mstr_leveldb_java" ]
   benchs <- forM benchmarkNames $ \name -> scope name $ do
@@ -50,6 +58,7 @@ example = defaultMain $ do
           [ "benchmark" ~> benchmark
           , "predicate" ~> predicates <./> toFilePath predicate
           ]
+        needs env
         cmd "predicate" $ commandArgs .=
           [ Input "benchmark/classes" , Input "benchmark/lib" ]
 
@@ -61,6 +70,7 @@ example = defaultMain $ do
               [ "benchmark" ~> benchmark
               , "predicate" ~> predicates <./> toFilePath predicate
               ]
+            needs env
             path [ "haskellPackages.jreduce" ]
             cmd "jreduce" $ commandArgs .=
               [ "-W", Output "workfolder"

@@ -43,6 +43,7 @@ emptyRule =
 data Requirement
   = LinkTo FilePath Input
   | OnPath Package
+  | Env Text.Text Input
 
 infixr 4 ~>
 -- | A convinient wrapper around `LinkTo`
@@ -67,7 +68,7 @@ makePrisms ''Condition
 
 ruleInputs :: Rule -> [Input]
 ruleInputs = toListOf
-  $ ruleRequires.folded.(_LinkTo._2 <> _OnPath.to PackageInput)
+  $ ruleRequires.folded.(_LinkTo._2 <> _OnPath.to PackageInput <> _Env._2)
   <> ruleCommands
         .folded.commandArgs.folded.cosmosOf (_ConcatArg._2.folded)._Global
 
