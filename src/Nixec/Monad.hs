@@ -279,7 +279,7 @@ runExecAction target nscript = do
           liftIO
           . fmap Csv.decodeByName
           . BL.readFile
-          $ output </> "nixec.csv"
+          $ output </> "times.csv"
         case findOf folded (view $ statsRuleName.to (== rn)) vn of
           Just stat
             | stat ^.statsExitCode == 0 -> do
