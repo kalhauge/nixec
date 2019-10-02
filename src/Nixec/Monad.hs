@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GADTs #-}
@@ -14,7 +15,7 @@ module Nixec.Monad where
 -- base
 import Prelude hiding (log)
 import Data.Monoid
-import Control.Monad.Fail
+-- import Control.Monad.Fail
 import qualified Data.List as List
 
 -- cassava
@@ -40,7 +41,7 @@ import System.Directory
 import qualified Data.ByteString.Lazy as BL
 
 -- optparse-applicative
-import Options.Applicative
+import Options.Applicative hiding (Success)
 
 -- mtl
 import Control.Monad.Reader
@@ -102,18 +103,15 @@ makeClassy ''Config
 parseConfig :: Parser Config
 parseConfig = do
   _configOverlays <-
-    many $ strOption
-    ( short 'O'
+    fmap ("overlay.nix":) . many . strOption
+    $ short 'O'
       <> long "overlays"
       <> metavar "FILE"
-      <> help "Nix overlays (default:overlay.nix)"
-      <> value ["overlay.nix"]
-    )
+      <> help "Nix overlays (default: 'overlay.nix')"
 
   _configAction <-
     subparser $
     command "list" (info (pure ListAction) (progDesc "Print greeting"))
-
 
   pure $
     defaultConfig
@@ -132,9 +130,10 @@ newRuleName name = do
 defaultMain ::
   Nixec Rule
   -> IO ()
-defaultMain = do
-  config <- execParser $ info (parseConfig <**> helper) ( header "nixec-builder" )
-  mainWithConfig config
+defaultMain nscript = do
+  cfg <- execParser $
+    info (parseConfig <**> helper) (header "nixec-builder")
+  mainWithConfig cfg nscript
 
 mainWithConfig :: Config -> Nixec Rule -> IO ()
 mainWithConfig cfg nm = do
@@ -172,7 +171,7 @@ runListAction =
 
 runExecAction ::
   forall env m.
-  (MonadReader env m, HasConfig env, MonadIO m, MonadFail m)
+  (MonadReader env m, HasConfig env, MonadIO m)
   => RuleName
   -> Nixec Rule
   -> m ()
