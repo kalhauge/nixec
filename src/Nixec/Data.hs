@@ -100,6 +100,18 @@ data Input
   | InInput Input FilePath
   deriving (Show, Eq, Ord, Data)
 
+
+instance Pretty Input where
+  pretty = \case
+    RuleInput rn ->
+      "rule:" <+> pretty rn
+    PackageInput p ->
+      "package:" <+> pretty p
+    FileInput f ->
+      "file:" <+> pretty f
+    InInput i fp ->
+      "file " <+> pretty fp <+> "in" <+> pretty i
+
 makePrisms ''Input
 
 pkg :: Package -> Input

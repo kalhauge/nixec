@@ -24,10 +24,10 @@ import Data.Text.Prettyprint.Doc
 import qualified Data.Text as Text
 
 data Command = Command
-  { _commandProgram :: !CommandArgument
-  , _commandArgs    :: ![ CommandArgument ]
-  , _commandStderr  :: !(Maybe FilePath)
-  , _commandStdout  :: !(Maybe FilePath)
+  { _program :: !CommandArgument
+  , _args    :: ![ CommandArgument ]
+  , _stderr  :: !(Maybe FilePath)
+  , _stdout  :: !(Maybe FilePath)
   }
 
 makeCommand :: CommandArgument -> Command
@@ -61,14 +61,14 @@ renderCommands commands = vsep . concat $
     , "INPUTDIR=''${1:-.}"
     ]
   , [ splitcommand $ concat
-      [ [ commandArgToShell (c^.commandProgram) ]
-      , [ commandArgToShell ca | ca <- c^. commandArgs]
+      [ [ commandArgToShell (c^.program) ]
+      , [ commandArgToShell ca | ca <- c^. args]
       , [ ">>" <> (dquotes . pretty $ "$WORKDIR" </> fp)
-        | fp <- maybeToList (c ^. commandStdout)]
-      , if c ^. commandStderr == c ^. commandStdout && c ^. commandStderr /= Nothing
+        | fp <- maybeToList (c ^. stdout)]
+      , if c ^. stderr == c ^. stdout && c ^. stderr /= Nothing
         then [ "2>&1" ]
         else [ "2>>" <> (dquotes . pretty $ "$WORKDIR" </> fp)
-             | fp <- maybeToList (c ^. commandStderr)]
+             | fp <- maybeToList (c ^. stderr)]
       ]
     | c <- commands
     ]
@@ -80,8 +80,8 @@ renderCommands commands = vsep . concat $
       RegularArg i
         | Text.any (\c -> c == ';' || c == ' ') i -> dquotes (pretty i)
         | otherwise -> pretty i
-      ConcatArg t args ->
-        concatWith (\a b -> a <> pretty t <> b) . map commandArgToShell $ args
+      ConcatArg t _args ->
+        concatWith (\a b -> a <> pretty t <> b) . map commandArgToShell $ _args
 
 splitcommand :: [Doc m] -> Doc m
 splitcommand =

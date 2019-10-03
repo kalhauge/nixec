@@ -8,9 +8,7 @@ import Control.Lens
 
 -- base
 import System.Exit
-
--- filepath
-import System.FilePath
+import Data.Foldable
 
 -- mtl
 import Control.Monad.State
@@ -87,12 +85,11 @@ path :: [ Package ] -> RuleM ()
 path pkgs =
   ruleRequires %= (++ [ OnPath p | p <- pkgs ])
 
-joinCsv :: [ Text.Text ] -> [ RuleName ] -> FilePath -> RuleM ()
-joinCsv _ rules fp = do
-  needs [ toFilePath (topRuleName c) ~> c | c <- rules ]
+joinCsv :: Foldable f => [ Text.Text ] -> f CommandArgument -> FilePath -> RuleM ()
+joinCsv _ cmdargs fp = do
   cmd "cat" $ do
-    commandArgs .= [ Input (toFilePath (topRuleName r) </> fp) | r <- rules ]
-    commandStdout .= Just fp
+    args .= toList cmdargs
+    stdout .= Just fp
 
 exists :: FilePath -> RuleM ()
 exists _ = return ()
@@ -100,7 +97,19 @@ exists _ = return ()
 copy :: Bool -> CommandArgument -> FilePath -> RuleM ()
 copy recursive cm fp =
   cmd "cp" $ do
-    commandArgs .= [ "-r" | recursive ] ++ [ cm , Output fp ]
+    args .= [ "-r" | recursive ] ++ [ cm , Output fp ]
+
+link :: FilePath -> Input -> RuleM CommandArgument
+link fp i = do
+  needs [fp ~> i]
+  return $ Input fp
+
+links :: Traversable f => f (FilePath, Input) -> RuleM (f CommandArgument)
+links = mapM (uncurry link)
+
+asLinks :: Traversable f => f RuleName -> RuleM (f CommandArgument)
+asLinks =
+  links . fmap (\c -> (toFilePath (topRuleName c), RuleInput c))
 
 
   -- [text|
