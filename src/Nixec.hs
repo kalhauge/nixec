@@ -36,8 +36,8 @@ import Nixec.Monad
 example :: IO ()
 example = mainWithConfig
   ( defaultConfig
-    & configAction .~
-    ToNixAction (ruleNameFromText "urlfc5806b04b_wlu_mstr_leveldb_java:cfr:run")
+    & configAction .~ -- GetRulesAction
+    ExecAction (ruleNameFromText "urlfc5806b04b_wlu_mstr_leveldb_java")
   ) $ do
   let predicates = FileInput "predicate"
   let benchmarks = PackageInput "benchmarks"
@@ -63,7 +63,7 @@ example = mainWithConfig
           , "predicate" ~> predicates <./> toFilePath predicate
           ]
         needs env
-        path [ "openjdk", "unzip" ]
+        path [ "openjdk", "unzip", "time", "coreutils"]
         cmd "predicate" $ commandArgs .=
           [ Input "benchmark/classes" , Input "benchmark/lib" ]
 
@@ -76,7 +76,7 @@ example = mainWithConfig
               , "predicate" ~> predicates <./> toFilePath predicate
               ]
             needs env
-            path [ "haskellPackages.jreduce", "openjdk", "unzip"]
+            path [ "haskellPackages.jreduce", "openjdk", "unzip", "time", "coreutils"]
             cmd "jreduce" $ commandArgs .=
               [ "-W", Output "workfolder"
               , "-p", "out,exit"

@@ -25,6 +25,8 @@ dependencies:
   - cassava
   - typed-process
   - optparse-applicative
+  - containers
+  - transformers
 
 library:
   source-dirs: src

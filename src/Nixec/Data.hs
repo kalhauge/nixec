@@ -20,6 +20,7 @@ import Control.Monad
 import Data.Maybe
 -- import System.Exit
 import Data.Data
+import qualified Data.List as List
 
 -- prettyprinter
 import Data.Text.Prettyprint.Doc
@@ -48,6 +49,11 @@ ruleNameFromText =
   RuleName
   . fromJust . NonEmpty.nonEmpty
   . reverse . Text.split (== ':')
+
+ruleNameInScope :: RuleName -> Scope -> Bool
+ruleNameInScope (RuleName n) sp =
+  sp `List.isSuffixOf` (NonEmpty.toList n)
+  || (NonEmpty.toList n) `List.isSuffixOf` sp
 
 displayRuleName :: RuleName -> Builder
 displayRuleName =
