@@ -57,10 +57,10 @@ makePrisms ''CommandArgument
 
 renderCommands :: [Command] -> Doc m
 renderCommands commands = vsep . concat $
-  [ [ "WORKDIR=''${1:-\"$(pwd)\"}"
-    , "INPUTDIR=''${2:-$WORKDIR}"
+  [ [ "WORKDIR=''${2:-\"$(pwd)\"}"
+    , "INPUTDIR=''${1:-.}"
     ]
-  , [ hsep $ concat
+  , [ splitcommand $ concat
       [ [ commandArgToShell (c^.commandProgram) ]
       , [ commandArgToShell ca | ca <- c^. commandArgs]
       , [ ">>" <> (dquotes . pretty $ "$WORKDIR" </> fp)
@@ -82,3 +82,9 @@ renderCommands commands = vsep . concat $
         | otherwise -> pretty i
       ConcatArg t args ->
         concatWith (\a b -> a <> pretty t <> b) . map commandArgToShell $ args
+
+splitcommand :: [Doc m] -> Doc m
+splitcommand =
+  nest 2 . concatWith (\a b -> a <> group linesep <> b)
+  where linesep = (flatAlt (" \\" <> line) space)
+  -- group  <> group b)

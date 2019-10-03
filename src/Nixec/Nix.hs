@@ -1,10 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 module Nixec.Nix where
 
 -- lens
-import Control.Lens
+import Control.Lens hiding ((<.>))
 
 -- prettyprinter
 import Data.Text.Prettyprint.Doc
@@ -13,6 +15,117 @@ import Data.Text.Prettyprint.Doc
 import Nixec.Rule
 import Nixec.Command
 import Nixec.Data
+
+-- filepath
+import System.FilePath
+
+-- directory
+import System.Directory
+
+-- typed-process
+import System.Process.Typed
+
+-- base
+import Control.Monad.IO.Class
+import Data.String
+import System.Exit
+-- import qualified Data.List as List
+
+-- mtl
+import Control.Monad.Reader
+
+data NixConfig = NixConfig
+  { _nixFolder   :: FilePath
+  , _nixOverlays :: [ FilePath ]
+  }
+
+makeClassy ''NixConfig
+
+type HasNix env m = (MonadIO m, HasNixConfig env, MonadReader env m)
+
+writeNixRule :: HasNix env m
+  => RuleName
+  -> Rule
+  -> m ()
+writeNixRule rn r = do
+  file <- nixFile rn
+  liftIO . createDirectoryIfMissing True =<< view nixFolder
+  liftIO $
+    writeFile file $ show (ruleToNix rn r)
+
+nixFile :: (MonadReader env m, HasNixConfig env) => RuleName -> m FilePath
+nixFile rn =
+  view nixFolder <&> \folder ->
+  folder </> show (ruleNameToNix rn) <.> "nix"
+
+nixBuild :: HasNix env m
+  => FilePath
+  -> RuleName
+  -> m ()
+nixBuild output rn = do
+  script <- nixBuildScript rn
+  runProcess_
+    . setDelegateCtlc True
+    $ proc "nix-build"
+      [ "-E", script
+      , "-o", output
+      ]
+
+nixCheckBuild :: HasNix env m => RuleName -> m (Maybe FilePath)
+nixCheckBuild rn = do
+  output <- dropExtension <$> nixFile rn
+  script <- nixBuildScript rn
+  (exit,_,_) <- readProcess
+    . setDelegateCtlc True
+    $ proc "nix-build"
+      [ "-E", script
+      , "-o", output
+      , "--readonly-mode"
+      ]
+  case exit of
+    ExitSuccess ->
+      return $ Just output
+    _ -> do
+      return $ Nothing
+
+nixBuildScript ::
+  HasNix env m
+  => RuleName
+  -> m String
+nixBuildScript rn = do
+  file <- nixFile rn
+  fps <- view nixOverlays
+  overlays <- fmap concat . forM fps $ \fp -> do
+    b <- liftIO $ doesFileExist fp
+    return [ "(import ./" ++ fp ++ ")" | b ]
+
+  return . show $
+    "((import <nixpkgs> {}).appendOverlays ["
+    <> vsep (map pretty overlays) <>
+    "]).callPackage"
+    <+> "./" <> fromString file
+    <+> "{}"
+  -- return . show $
+  --   "(import <nixpkgs> { overlays = ["
+  --   <> vsep (map pretty overlays)
+  --   <> "]; }).callPackage"
+  --   <+> "./" <> fromString file
+  --   <+> "{}"
+
+nixBuildAll :: (HasNix env m, Foldable f)
+  => f RuleName
+  -> m ()
+nixBuildAll rns = do
+  forM_ rns $ \rn -> do
+    output <- dropExtension <$> nixFile rn
+    nixBuild output rn
+
+
+
+
+
+
+
 
 ruleNameToNix :: RuleName -> Doc m
 ruleNameToNix =
@@ -69,7 +182,7 @@ ruleToNix rn r =
     header = encloseSep "{ " " }" ", " $
       ["stdenv", "callPackage"]
       ++
-      [ pretty (p :: Package)
+      [ pretty (superPackage p)
       | p <- toListOf (folding ruleInputs.cosmosOf (_InInput._1)._PackageInput) r
       ]
 
@@ -110,7 +223,9 @@ ruleToNixDrv rn r =
       -- , [ "timeout" <+> pretty timelimit ]
       , [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
         , splitcommand
-          [ "${time}/bin/time", "--format", dquotes "$name,%e,%U,%S,%M,%x", "--output", "times.csv"
+          [ "${time}/bin/time", "--format"
+          , dquotes ((pretty rn) <> ",%e,%U,%S,%M,%x")
+          , "--append", "--output", "times.csv"
           , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
           , "||:"]
         ]
@@ -123,17 +238,9 @@ ruleToNixDrv rn r =
       ]
     )
   ]
-
   where
     script :: Doc m -> Doc m
     script a = vcat $ [ "''", indent 2 a , "''"]
-
-splitcommand :: [Doc m] -> Doc m
-splitcommand =
-  nest 2 . concatWith (\a b -> a <> group linesep <> b)
-  where linesep = (flatAlt (" \\" <> line) space)
-  -- group  <> group b)
-
 
 nixstring :: Doc m -> Doc m
 nixstring = enclose

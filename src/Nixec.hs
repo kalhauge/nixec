@@ -39,15 +39,15 @@ example = mainWithConfig
     & configAction .~ -- GetRulesAction
     ExecAction (ruleNameFromText "urlfc5806b04b_wlu_mstr_leveldb_java")
   ) $ do
-  let predicates = FileInput "predicate"
+  let predicates = FileInput "example/predicate"
   let benchmarks = PackageInput "benchmarks"
   let env =
         [ Env "CFR"
-          (FileInput "decompilers/cfr/cfr_0_132.jar" )
+          (FileInput "example/decompilers/cfr/cfr_0_132.jar" )
         , Env "PROCYON"
-          (FileInput "decompilers/procyon/procyon-decompiler-0.5.30.jar" )
+          (FileInput "example/decompilers/procyon/procyon-decompiler-0.5.30.jar" )
         , Env "FERNFLOWER"
-          (FileInput "decompilers/fernflower/fernflower.jar" )
+          (FileInput "example/decompilers/fernflower/fernflower.jar" )
         ]
 
   let benchmarkNames = [ "urlfc5806b04b_wlu_mstr_leveldb_java" ]
@@ -64,11 +64,11 @@ example = mainWithConfig
           ]
         needs env
         path [ "openjdk", "unzip", "time", "coreutils"]
-        cmd "predicate" $ commandArgs .=
+        cmd (Input "predicate") $ commandArgs .=
           [ Input "benchmark/classes" , Input "benchmark/lib" ]
 
       reduce <- onSuccess run $ do
-        let strategies = [ "classes" , "methods"] -- , "interfaces" ]
+        let strategies = [ "class" , "methods"] -- , "interfaces" ]
 
         reductions <- forM strategies $ \strategy -> rule strategy $ do
             needs
@@ -87,23 +87,33 @@ example = mainWithConfig
               , "--cp", Input "benchmark/lib"
               , Input "benchmark/classes"
               , Input "predicate", "{}"
-              , "%" <.+> Input "benchmarks/lib"
+              , "%" <.+> Input "benchmark/lib"
               ]
 
         rule "reduce" $ do
           needs [ toFilePath (topRuleName c) ~> c | c <- reductions ]
-          cmd "extract.py" $ commandArgs .=
-            [ Input $ toFilePath (topRuleName c) | c <- reductions ]
+          needs [ "extract.py" ~> FileInput "extract.py"]
+          path [ "python3", "time", "coreutils" ]
+          cmd "python3" $ do
+            commandArgs .= concat
+              [ [ Input "extract.py" ]
+              , [ RegularArg name, RegularArg predicate ]
+              , [ Input $ toFilePath (topRuleName c) | c <- reductions ]
+              ]
+            commandStdout .= Just "result.csv"
           exists "result.csv"
 
       collect $ do
-        needs [ "run" ~> run ]
+        needs [ "run" ~> run]
+        path [ "time", "coreutils" ]
         joinCsv fields (maybeToList reduce) "result.csv"
 
     collect $ do
+      path [ "time", "coreutils" ]
       joinCsv fields runs "result.csv"
 
   collect $ do
+    path [ "time", "coreutils" ]
     joinCsv fields benchs "result.csv"
 
   where

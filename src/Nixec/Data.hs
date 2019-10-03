@@ -18,8 +18,10 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Control.Monad.IO.Class
 import Control.Monad
 import Data.Maybe
+import Data.Function
 -- import System.Exit
 import Data.Data
+import Data.String
 import qualified Data.List as List
 
 -- prettyprinter
@@ -55,6 +57,17 @@ ruleNameInScope (RuleName n) sp =
   sp `List.isSuffixOf` (NonEmpty.toList n)
   || (NonEmpty.toList n) `List.isSuffixOf` sp
 
+ruleNamePrefixLength :: RuleName -> RuleName -> Int
+ruleNamePrefixLength =
+  longestPrefix `on` reverse . NonEmpty.toList . unRuleName
+  where
+    longestPrefix = curry $ \case
+      (a:as, b:bs)
+        | a == b -> 1 + (longestPrefix as bs)
+      _ -> 0
+
+  
+
 displayRuleName :: RuleName -> Builder
 displayRuleName =
   foldr1 (\a b -> b <> ":" <> a) . fmap fromText . unRuleName
@@ -63,7 +76,21 @@ instance Pretty RuleName where
   pretty = pretty . toLazyText . displayRuleName
 
 -- | We can use nix packages as inputs
-type Package = Text.Text
+newtype Package = Package (NonEmpty.NonEmpty Text.Text)
+  deriving (Show, Eq, Ord, Data)
+
+superPackage :: Package -> Package
+superPackage (Package p)=
+  Package (NonEmpty.head p NonEmpty.:| [])
+
+instance IsString Package where
+  fromString = Package
+    . fromJust . NonEmpty.nonEmpty
+    . Text.split (=='.') . Text.pack
+
+instance Pretty Package where
+  pretty (Package n) = pretty $ Text.intercalate "." (NonEmpty.toList n)
+
 
 -- | We have different kinds of inputs
 data Input
@@ -110,7 +137,7 @@ data NixecStats = NixecStats
   { _statsRuleName :: RuleName
   -- , _statsStatus  :: Status
   , _statsExitCode  :: Int
-  }
+  } deriving (Show, Eq, Ord)
 
 makeLenses ''NixecStats
 
