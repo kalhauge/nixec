@@ -144,7 +144,7 @@ data Config = Config
 defaultConfig :: Config
 defaultConfig = Config
   []
-  (NixConfig "_nixec/nix" [ "overlay.nix" ] "mkRule" ("nix-build", []))
+  (NixConfig "_nixec/nix" [ "overlay.nix" ] True "mkRule" ("nix-build", []))
   Nothing
   $ RunAction
 
@@ -168,6 +168,8 @@ parseConfig = do
     _nixBuildCommand <- pure ("nix-build", [])
 
     _nixMkRule <- pure "mkRule"
+
+    _nixVerbose <- pure True
 
     pure $ NixConfig {..}
 

@@ -46,6 +46,7 @@ import Control.Monad.Reader
 data NixConfig = NixConfig
   { _nixFolder       :: FilePath
   , _nixOverlays     :: [ FilePath ]
+  , _nixVerbose      :: Bool
   , _nixMkRule       :: Package
   , _nixBuildCommand :: (String, [ String ])
   }
@@ -75,9 +76,13 @@ nixBuild ::
   -> m (Maybe FilePath)
 nixBuild script = do
   (_cmd, _args) <- view nixBuildCommand
-  (exit, s) <- readProcessStdout
-    . setDelegateCtlc True
-    $ proc _cmd (_args ++ [ "-E", script ])
+  let a = setDelegateCtlc True $ proc _cmd (_args ++ [ "-E", script ])
+  verbose <- view nixVerbose
+  (exit, s) <- if verbose
+    then readProcessStdout a
+    else do
+    (exit, s, _) <- readProcess a
+    return (exit, s)
   case exit of
     ExitSuccess ->
       return $ Just (Text.unpack . Text.strip . decodeUtf8 . BL.toStrict $ s)
@@ -89,7 +94,10 @@ withArgs _args =
   local (nixBuildCommand._2 %~ (++ _args))
 
 nixCheckBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
-nixCheckBuildInput = withArgs ["--readonly-mode"] . nixBuildInput
+nixCheckBuildInput =
+  local (nixVerbose .~ False)
+  . withArgs ["--readonly-mode"]
+  . nixBuildInput
 
 nixBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
 nixBuildInput = \case
@@ -187,7 +195,7 @@ ruleToNix rn r = do
   return $ header <> ":" <> line <> scrpt
   where
     mkHeader mkRule = encloseSep "{ " " }" ", " $
-      ["stdenv", "callPackage"]
+      ["stdenv", "callPackage", "time"]
       ++
       [ pretty (superPackage p)
       | p <- mkRule:toListOf (folding ruleInputs.cosmosOf (_InInput._1)._PackageInput) r
