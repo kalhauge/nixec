@@ -9,6 +9,7 @@ import Control.Lens
 -- base
 import System.Exit
 import Data.Foldable
+import Data.String
 
 -- mtl
 import Control.Monad.State
@@ -85,10 +86,13 @@ path :: [ Package ] -> RuleM ()
 path pkgs =
   ruleRequires %= (++ [ OnPath p | p <- pkgs ])
 
-joinCsv :: Foldable f => [ Text.Text ] -> f CommandArgument -> FilePath -> RuleM ()
+joinCsv ::
+  Foldable f
+  => [ Text.Text ]
+  -> f CommandArgument -> FilePath -> RuleM ()
 joinCsv _ cmdargs fp = do
-  cmd "cat" $ do
-    args .= toList cmdargs
+  cmd "awk" $ do
+    args .= "FNR==1 && NR!=1{next;}{print}":[c <.+> "/" <.+> fromString fp | c <- toList cmdargs ]
     stdout .= Just fp
 
 exists :: FilePath -> RuleM ()
