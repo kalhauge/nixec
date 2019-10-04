@@ -36,6 +36,7 @@ import System.Process.Typed
 
 -- base
 import Control.Monad.IO.Class
+import Control.Exception
 import Data.String
 import System.Exit
 -- import qualified Data.List as List
@@ -86,6 +87,8 @@ nixBuild script = do
   case exit of
     ExitSuccess ->
       return $ Just (Text.unpack . Text.strip . decodeUtf8 . BL.toStrict $ s)
+    ExitFailure 130  -> -- sigint
+      throw UserInterrupt
     _ -> do
       return $ Nothing
 

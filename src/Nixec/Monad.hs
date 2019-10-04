@@ -112,6 +112,7 @@ checkSuccess rn output = liftIO $ do
           stat^.statsExitCode == 0
         Nothing -> False
     Left err -> do
+      liftIO . putStrLn $ "Could not parse csv file " ++ output ++ ": " ++ show err
       return False
 
 onSuccess :: RuleName -> Nixec a -> Nixec (Maybe a)
@@ -243,40 +244,42 @@ buildDatabase nscript
           throwError (Set.singleton i)
 
     Seperate n1 n2 n -> do
-      (a, b) <- view configTarget >>= \case
-        Just target -> ExceptT . WriterT $ do
-          (e1, rls1) <- buildDatabase n1
-          (e2, rls2) <- buildDatabase n2
-          case (e1, e2) of
-            -- Both computed
-            (Right a, Right b) ->
-              return (Right (a, b), rls1 <> rls2)
+      trg <- view configTarget
+      (a, b) <- ExceptT . WriterT $ do
+        (e1, rls1) <- buildDatabase n1
+        (e2, rls2) <- buildDatabase n2
+        case (e1, e2) of
+          -- Both computed
+          (Right a, Right b) ->
+            return (Right (a, b), rls1 <> rls2)
 
-            -- Both failed, choose the one with the longest prefix and
-            -- report that back
-            (Left s1, Left s2) -> do
-              let prl1 = maxPrefixLength s1
-                  prl2 = maxPrefixLength s2
-              return $ case compare prl1 prl2 of
-                LT -> (Left s2, rls2)
-                GT -> (Left s1, rls1)
-                EQ -> (Left (s1 <> s2), rls1 <> rls2)
-              where
-                maxPrefixLength =
-                  maximum . map (\case
-                                    RuleInput f -> ruleNamePrefixLength target f
-                                    _ -> 0
-                                ) . Set.toList
-            -- One failed, only include data to produce the fail
-            (Left s1, _) ->
-              return (Left s1, rls1)
+          -- Both failed, choose the one with the longest prefix and
+          -- report that back
+          (Left s1, Left s2) -> do
+            case trg of
+              Just target -> do
+                let prl1 = maxPrefixLength s1
+                    prl2 = maxPrefixLength s2
+                return $ case compare prl1 prl2 of
+                  LT -> (Left s2, rls2)
+                  GT -> (Left s1, rls1)
+                  EQ -> (Left (s1 <> s2), rls1 <> rls2)
+                where
+                  maxInputLength = \case
+                    RuleInput f -> ruleNamePrefixLength target f
+                    _ -> 0
+                  maxPrefixLength =
+                    maximum . map maxInputLength . Set.toList
+              Nothing ->
+                return (Left (s1 <> s2), rls1 <> rls2)
 
-            -- One failed, only include data to produce the fail
-            (_, Left s2) ->
-              return (Left s2, rls2)
+          -- One failed, only include data to produce the fail
+          (Left s1, _) ->
+            return (Left s1, rls1)
 
-        Nothing ->
-          (,) <$> runNixec run n1 <*> runNixec run n2
+          -- One failed, only include data to produce the fail
+          (_, Left s2) ->
+            return (Left s2, rls2)
 
       n (a, b)
 
