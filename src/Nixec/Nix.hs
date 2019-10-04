@@ -231,7 +231,6 @@ ruleToNixDrv rn r = do
               | LinkTo fp i <- r ^. ruleRequires
               ]
             , [ "ln -s $command run.sh"
-              , "chmod +x run.sh"
               ]
             ]
           )
