@@ -359,7 +359,7 @@ listFiles :: Input -> (FilePath -> Maybe b) -> Nixec [(b, Input)]
 listFiles i fm =
   fmap catMaybes . inspect i $ \fp -> do
     content <- listDirectory fp
-    return $ map (fmap (,InInput i fp) . fm) content
+    return $ map (\c -> (,InInput i c) <$> fm c) content
 
 
 
