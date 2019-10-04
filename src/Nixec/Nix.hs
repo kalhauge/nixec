@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -24,21 +25,23 @@ import System.FilePath
 import System.Directory
 
 -- bytestring
-import qualified Data.ByteString.Lazy.Char8 as BL
+-- import qualified Data.ByteString.Lazy.Char8 as BL
 
 -- text
 import qualified Data.Text as Text
 
-import Data.Text.Encoding
+-- import Data.Text.Encoding
 
--- typed-process
-import System.Process.Typed
+-- process
+import System.Process
 
 -- base
 import Control.Monad.IO.Class
 import Control.Exception
+import System.IO
 import Data.String
-import System.Exit
+import Data.Foldable
+-- import System.Exit
 -- import qualified Data.List as List
 
 -- mtl
@@ -77,19 +80,20 @@ nixBuild ::
   -> m (Maybe FilePath)
 nixBuild script = do
   (_cmd, _args) <- view nixBuildCommand
-  let a = setDelegateCtlc True $ proc _cmd (_args ++ [ "-E", script ])
   verbose <- view nixVerbose
-  (exit, s) <- if verbose
-    then readProcessStdout a
-    else do
-    (exit, s, _) <- readProcess a
-    return (exit, s)
-  case exit of
-    ExitSuccess ->
-      return $ Just (Text.unpack . Text.strip . decodeUtf8 . BL.toStrict $ s)
-    ExitFailure 130  -> -- sigint
-      throw UserInterrupt
-    _ -> do
+  let a = proc _cmd (_args ++ [ "-E", script ])
+  out <- liftIO . try $ do
+    bracket (openFile "/dev/null" WriteMode) hClose $ \devnull -> do
+      let a' = a { delegate_ctlc = False
+                , std_err = if verbose then Inherit else UseHandle devnull
+                }
+      readCreateProcess a' ""
+
+  case out of
+    Right s ->
+      return $ Just (Text.unpack . Text.strip . Text.pack $ s)
+    Left (exit :: IOException) -> do
+      liftIO $ print exit
       return $ Nothing
 
 withArgs :: HasNix env m => [String] -> m a -> m a
@@ -141,9 +145,9 @@ nixPackageScript' pkg' = do
 
 nixBuildAll :: (HasNix env m, Foldable f)
   => f Input
-  -> m ()
+  -> m (Maybe [FilePath])
 nixBuildAll rns = do
-  forM_ rns $ nixBuildInput
+  fmap sequence . forM (toList rns) $ nixBuildInput
 
 ruleNameToNix :: RuleName -> Doc m
 ruleNameToNix =

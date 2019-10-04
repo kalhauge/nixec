@@ -23,7 +23,7 @@ dependencies:
   - free
   - bytestring
   - cassava
-  - typed-process
+  - process
   - optparse-applicative
   - containers
   - transformers

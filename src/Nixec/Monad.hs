@@ -223,7 +223,7 @@ buildDatabase nscript
       rn <- newRuleName name
       nixFileExist <- liftIO . doesFileExist =<< nixFile rn
       doCheck <- view configCheck
-      unless (nixFileExist || doCheck) $
+      unless (nixFileExist || not doCheck) $
         writeNixRule rn r
       tell (Map.singleton rn r)
       view configTarget >>= \case
@@ -334,10 +334,11 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
           doDryRun <- view configDryRun
           unless doDryRun $ do
             liftIO $ putStrLn "Computing tasks:"
-            nixBuildAll s
-            continuouslyBuildDatabase
-
-
+            nixBuildAll s >>= \case
+              Just _ ->
+                continuouslyBuildDatabase
+              Nothing ->
+                liftIO $ putStrLn "Failed building tasks"
 
 scopes ::
   Traversable f
