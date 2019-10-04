@@ -102,7 +102,8 @@ nixCheckBuildInput =
 nixBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
 nixBuildInput = \case
   PackageInput p -> do
-    nixBuild =<< nixPackageScript p
+    withArgs ["--no-out-link"] $
+      nixBuild =<< nixPackageScript p
   RuleInput rn -> do
     output <- dropExtension <$> nixFile rn
     withArgs ["-o", output] $
