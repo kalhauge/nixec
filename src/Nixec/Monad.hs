@@ -304,13 +304,20 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
     liftIO $ putStrLn "Build Database:"
     continuouslyBuildDatabase
 
-  liftIO $ putStrLn "Build Target:"
-  nixBuildInput (RuleInput trg) >>= \case
-    Just output -> liftIO $ do
-      putStrLn "Success"
-      createDirectoryLink output "result"
-    Nothing ->
-      liftIO $ putStrLn "Failure"
+  view configDryRun >>= \case
+    True -> do
+      script <- nixRuleScript trg
+      liftIO $ do
+        putStrLn "Would run following script:"
+        print script
+    False -> do
+      liftIO $ putStrLn "Build Target:"
+      nixBuildInput (RuleInput trg) >>= \case
+        Just output -> liftIO $ do
+          putStrLn "Success"
+          createDirectoryLink output "result"
+        Nothing ->
+          liftIO $ putStrLn "Failure"
 
   where
     continuouslyBuildDatabase = do
@@ -329,9 +336,6 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
             liftIO $ putStrLn "Computing tasks:"
             nixBuildAll s
             continuouslyBuildDatabase
-
-
-
 
 
 

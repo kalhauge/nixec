@@ -51,8 +51,8 @@ an easy to use single entry point.
 
 ## Roadmap
 
+-    Compute the execution tree using nix.
 -    TODO: Create initial representation that can produce an execution tree.
--    TODO: Compute the execution tree using nix.
 -    TODO: Create executable, which can set everything up.
 -    TODO: Work on export options.
 -    TODO: Write documentation.
