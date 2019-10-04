@@ -245,6 +245,7 @@ ruleToNixDrv rn r = do
               , "--append", "--output", "times.csv"
               , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
               , "||:"]
+            , "sed -i -e '/Command/d' 'times.csv'"
             ]
           ]
         )
