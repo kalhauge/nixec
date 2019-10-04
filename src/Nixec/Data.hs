@@ -50,7 +50,7 @@ ruleNameFromText :: Text.Text -> RuleName
 ruleNameFromText =
   RuleName
   . fromJust . NonEmpty.nonEmpty
-  . reverse . Text.split (== ':')
+  . reverse . Text.split (== '-')
 
 ruleNameInScope :: RuleName -> Scope -> Bool
 ruleNameInScope (RuleName n) sp =

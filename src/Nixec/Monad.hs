@@ -17,13 +17,10 @@ module Nixec.Monad where
 
 -- base
 import Prelude hiding (log)
--- import Data.Monoid
 import Data.Foldable
 import Data.Maybe
 import Data.Coerce
-import Data.String
--- import Control.Monad.Fail
-import qualified Data.List as List
+-- import qualified Data.List as List
 
 -- cassava
 import qualified Data.Csv as Csv
@@ -39,7 +36,6 @@ import Control.Monad.Free
 import Control.Monad.Free.TH
 
 -- containers
--- import Data.Tree
 import qualified Data.Map.Lazy as Map
 import qualified Data.Set as Set
 
@@ -122,11 +118,7 @@ checkSuccess rn output = liftIO $ do
 
 onSuccess :: RuleName -> Nixec a -> Nixec (Maybe a)
 onSuccess rn n = do
-  b <- inspect (RuleInput rn) $ \fp -> do
-    a <- checkSuccess rn fp
-    print ("Tested " <> pretty rn <> " result: " <> viaShow a)
-    print ("Check " <> fromString fp <> " for more." :: Doc ())
-    return a
+  b <- inspect (RuleInput rn) $ checkSuccess rn
   if b
   then Just <$> n
   else return Nothing
@@ -139,6 +131,7 @@ data Config = Config
   , _configNixConfig :: NixConfig
   , _configTarget    :: Maybe RuleName
   , _configDryRun    :: Bool
+  , _configCheck     :: Bool
   , _configAction    :: Action
   }
 
@@ -188,6 +181,10 @@ parseConfig = do
     long "dry"
     <> help "don't actually exeucute any nix-scripts."
 
+  _configCheck <- switch $
+    long "check"
+    <> help "check that the database is correct."
+
   _configTarget <-
     optional
     . fmap (ruleNameFromText . Text.pack)
@@ -214,18 +211,21 @@ newRuleName name = do
 type MissingT m a =
   ExceptT (Set.Set Input) (WriterT (Map.Map RuleName Rule) m) a
 
-computeStrategy ::
+buildDatabase ::
   forall env m a.
   (HasConfig env, HasNix env m)
   => Nixec a
   -> m (Either (Set.Set Input) a, Map.Map RuleName Rule)
-computeStrategy nscript
+buildDatabase nscript
   = runWriterT (runExceptT . runNixec run $ nscript) where
   run :: NixecF (MissingT m b) -> MissingT m b
   run = \case
     AddRule name r x -> do
       rn <- newRuleName name
-      writeNixRule rn r
+      nixFileExist <- liftIO . doesFileExist =<< nixFile rn
+      doCheck <- view configCheck
+      unless (nixFileExist || doCheck) $
+        writeNixRule rn r
       tell (Map.singleton rn r)
       view configTarget >>= \case
         Just target
@@ -247,8 +247,8 @@ computeStrategy nscript
     Seperate n1 n2 n -> do
       (a, b) <- view configTarget >>= \case
         Just target -> ExceptT . WriterT $ do
-          (e1, rls1) <- computeStrategy n1
-          (e2, rls2) <- computeStrategy n2
+          (e1, rls1) <- buildDatabase n1
+          (e2, rls2) <- buildDatabase n2
           case (e1, e2) of
             -- Both computed
             (Right a, Right b) ->
@@ -294,27 +294,45 @@ defaultMain nscript = do
 
 mainWithConfig :: Config -> Nixec Rule -> IO ()
 mainWithConfig cfg nm = flip runReaderT cfg $ do
-  (a, rls) <- computeStrategy (addRule "all" =<< nm)
+  trg <- fromMaybe (makeRuleName "all" []) <$> view configTarget
 
-  liftIO $ do
-    putStrLn "Known rules:"
-    forM_ (List.sort $ Map.keys rls) $ \rn ->
-      print ("- " <> pretty rn)
-    putStrLn ""
+  nixFileExist <- liftIO . doesFileExist =<< nixFile trg
 
-  case a of
-    Right _ ->
-      liftIO $ putStrLn "No Tasks..."
+  doCheck <- view configCheck
+  when (doCheck || not nixFileExist) $ do
+    liftIO $ putStrLn "Build Database:"
+    continuouslyBuildDatabase
 
-    Left s -> do
-      liftIO $ putStrLn "Tasks:"
-      liftIO . forM_ (Set.toAscList s) $ \rn ->
-        print ("+ " <> pretty rn)
+  liftIO $ putStrLn "Build Target:"
+  nixBuildInput (RuleInput trg) >>= \case
+    Just output -> liftIO $ do
+      putStrLn "Success"
+      createDirectoryLink output "result"
+    Nothing ->
+      liftIO $ putStrLn "Failure"
 
-      doDryRun <- view configDryRun
-      unless doDryRun $ do
-        liftIO $ putStrLn "Computing tasks:"
-        nixBuildAll s
+  where
+    continuouslyBuildDatabase = do
+      (fst <$> buildDatabase (addRule "all" =<< nm)) >>= \case
+        Right _ ->
+          liftIO $ putStrLn "No Tasks..."
+
+        Left s -> do
+          liftIO $ do
+            putStrLn "Tasks:"
+            forM_ (Set.toAscList s) $ \rn ->
+              print ("+ " <> pretty rn)
+
+          doDryRun <- view configDryRun
+          unless doDryRun $ do
+            liftIO $ putStrLn "Computing tasks:"
+            nixBuildAll s
+            continuouslyBuildDatabase
+
+
+
+
+
 
 scopes ::
   Traversable f
