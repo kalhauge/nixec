@@ -138,15 +138,16 @@ data Config = Config
   { _configScope     :: Scope
   , _configNixConfig :: NixConfig
   , _configTarget    :: Maybe RuleName
+  , _configDryRun    :: Bool
   , _configAction    :: Action
   }
 
-defaultConfig :: Config
-defaultConfig = Config
-  []
-  (NixConfig "_nixec/nix" [ "overlay.nix" ] True "mkRule" ("nix-build", []))
-  Nothing
-  $ RunAction
+-- defaultConfig :: Config
+-- defaultConfig = Config
+--   []
+--   (NixConfig "_nixec/nix" [ "overlay.nix" ] True "mkRule" ("nix-build", []))
+--   Nothing
+--   $ RunAction
 
 makeClassy ''Config
 
@@ -169,7 +170,9 @@ parseConfig = do
 
     _nixMkRule <- pure "mkRule"
 
-    _nixVerbose <- pure True
+    _nixVerbose <- switch $
+      short 'V'
+      <> help "show the output of running the nixscripts."
 
     pure $ NixConfig {..}
 
@@ -181,6 +184,9 @@ parseConfig = do
     --   (ExecAction .
     --   (progDesc "run derivations")
     -- ]
+  _configDryRun <- switch $
+    long "dry"
+    <> help "don't actually exeucute any nix-scripts."
 
   _configTarget <-
     optional
@@ -288,7 +294,7 @@ defaultMain nscript = do
 
 mainWithConfig :: Config -> Nixec Rule -> IO ()
 mainWithConfig cfg nm = flip runReaderT cfg $ do
-  (a, rls) <- computeStrategy nm
+  (a, rls) <- computeStrategy (addRule "all" =<< nm)
 
   liftIO $ do
     putStrLn "Known rules:"
@@ -305,7 +311,10 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
       liftIO . forM_ (Set.toAscList s) $ \rn ->
         print ("+ " <> pretty rn)
 
-      nixBuildAll s
+      doDryRun <- view configDryRun
+      unless doDryRun $ do
+        liftIO $ putStrLn "Computing tasks:"
+        nixBuildAll s
 
 scopes ::
   Traversable f
@@ -360,8 +369,6 @@ listFiles i fm =
   fmap catMaybes . inspect i $ \fp -> do
     content <- listDirectory fp
     return $ map (\c -> (,InInput i c) <$> fm c) content
-
-
 
   -- case cfg^.configAction of
   --   ListAction -> do
