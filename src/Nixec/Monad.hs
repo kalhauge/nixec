@@ -107,13 +107,11 @@ checkSuccess :: (MonadIO m) => RuleName -> FilePath -> m Bool
 checkSuccess rn output = liftIO $ do
   (fmap Csv.decodeByName . BL.readFile $ output </> "times.csv") >>= \case
     Right (_, vn) -> do
-      print vn
       return $ case findOf folded (view $ statsRuleName.to (== rn)) vn of
         Just stat ->
           stat^.statsExitCode == 0
         Nothing -> False
     Left err -> do
-      print err
       return False
 
 onSuccess :: RuleName -> Nixec a -> Nixec (Maybe a)

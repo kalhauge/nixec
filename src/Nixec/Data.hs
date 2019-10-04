@@ -70,7 +70,7 @@ ruleNamePrefixLength =
 
 displayRuleName :: RuleName -> Builder
 displayRuleName =
-  foldr1 (\a b -> b <> ":" <> a) . fmap fromText . unRuleName
+  foldr1 (\a b -> b <> "-" <> a) . fmap fromText . unRuleName
 
 instance Pretty RuleName where
   pretty = pretty . toLazyText . displayRuleName
