@@ -92,8 +92,7 @@ nixBuild script = do
   case out of
     Right s ->
       return $ Just (Text.unpack . Text.strip . Text.pack $ s)
-    Left (exit :: IOException) -> do
-      liftIO $ print exit
+    Left (_ :: IOException) -> do
       return $ Nothing
 
 withArgs :: HasNix env m => [String] -> m a -> m a

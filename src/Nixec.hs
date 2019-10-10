@@ -5,6 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Nixec
   ( module Nixec.Data
+  , module Nixec.App
   , module Nixec.Rule
   , module Nixec.Command
   , module Nixec.Monad
@@ -26,6 +27,7 @@ import Nixec.Data
 import Nixec.Rule hiding (rule)
 import Nixec.Command
 import Nixec.Monad
+import Nixec.App
 
 example :: IO ()
 example = defaultMain $ do

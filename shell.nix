@@ -1,1 +1,1 @@
-{ nixpkgs ? import <nixpkgs> {}}: nixpkgs.haskellPackages.callPackage ./default.nix {}
+{ nixpkgs ? import <nixpkgs> {}}: nixpkgs.haskellPackages.mkGhcidShell ./default.nix
