@@ -42,5 +42,6 @@ ghc-options:
 executables:
   nixec:
     main: Main.hs
-    dependencies: []
+    dependencies:
+      - nixec
     source-dirs: app
