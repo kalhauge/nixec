@@ -1,4 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE RankNTypes #-}
@@ -12,6 +14,9 @@ import Data.Maybe
 
 -- directory
 import System.Directory
+
+-- dirtree
+import System.DirTree
 
 -- containers
 import qualified Data.Map.Lazy as Map
@@ -35,6 +40,7 @@ import Data.Text.Prettyprint.Doc
 -- Nixec
 import Nixec.Data
 import Nixec.Config
+import qualified Nixec.Logger as L
 import Nixec.Rule hiding (rule)
 import Nixec.Nix
 import Nixec.Monad
@@ -182,3 +188,53 @@ buildDatabase nscript
             return (Left s2, rls2)
 
       n (a, b)
+
+
+data AppCommand
+  = Run
+
+data AppConfig = AppConfig
+  { _appLogger     :: L.Logger
+  , _appNixecfile  :: FilePath
+  }
+
+parseAppConfig :: Parser (IO AppConfig)
+parseAppConfig = do
+  _appLogger <-
+    L.parseLogger
+
+  ioAppNixecfile <- strOption $
+    short 'f'
+    <> long "file"
+    <> help "the path to the Nixecfile.hs."
+    <> value "./Nixecfile.hs"
+    <> showDefault
+
+  pure $ do
+
+    _appNixecfile <- checkFileType ioAppNixecfile >>= \case
+      Just (File _) ->
+        makeAbsolute ioAppNixecfile
+      _ ->
+        flip runReaderT _appLogger . L.criticalFailure $ "Expected "
+          <> L.displayString ioAppNixecfile
+          <> "to be a file."
+
+    return $ AppConfig {..}
+
+makeClassy ''AppConfig
+
+instance L.HasLogger AppConfig where logger = appLogger
+
+app :: IO ()
+app = do
+  appCfg <- join . execParser $
+    info (parseAppConfig <**> helper) (header "nixec")
+
+  runReaderT appRun appCfg
+
+appRun :: ReaderT AppConfig IO ()
+appRun = do
+  nixecfile <- view appNixecfile
+  L.debug $ "Started Nixec."
+  L.debug $ "Found Nixecfile: " <> L.displayString nixecfile

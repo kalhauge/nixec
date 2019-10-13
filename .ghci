@@ -1,3 +1,4 @@
 :set -fwarn-unused-binds -fwarn-unused-imports
 :set -isrc
-:load Nixec
+:set -iapp
+:load Main

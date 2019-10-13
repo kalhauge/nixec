@@ -1,4 +1,6 @@
 module Main where
 
+import Nixec
+
 main :: IO ()
-main = putStrLn "Hello, Haskell!"
+main = Nixec.app

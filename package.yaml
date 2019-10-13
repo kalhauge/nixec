@@ -1,7 +1,7 @@
 name:                nixec
 version:             0.1.0.0
 synopsis:            A system for specifying evaluation scripts
-license:             BSD-3-Clause
+license:             BSD3
 license-file:        LICENSE
 author:              Christian Gram Kalhauge
 maintainer:          christian@kalhauge.dk
@@ -27,6 +27,7 @@ dependencies:
   - optparse-applicative
   - containers
   - transformers
+  - dirtree
 
 library:
   source-dirs: src

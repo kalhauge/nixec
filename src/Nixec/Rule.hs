@@ -21,6 +21,7 @@ import qualified Data.Text as Text
 import Nixec.Data
 import Nixec.Command
 
+
 -- | The `Rule` is the basic item in `Nixec` this is what we are going to write
 -- the whole program out of.
 data Rule = Rule
@@ -114,19 +115,3 @@ links = mapM (uncurry link)
 asLinks :: Traversable f => f RuleName -> RuleM (f CommandArgument)
 asLinks =
   links . fmap (\c -> (toFilePath (topRuleName c), RuleInput c))
-
-
-  -- [text|
-  --   { dependencies .. }:
-  --   stdenv.mkDerivation {
-  --     name = "<rulename>"
-  --     unpackPhase = ''
-  --       ln -s
-  --     ''
-  --     buildPhase = ''
-  --       ./run.sh
-  --     ''
-  --     installPhase = ''
-  --       mv . $out
-  --     ''
-  --   }|]
