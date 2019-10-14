@@ -130,6 +130,8 @@ parseConfig = do
 
     _configTarget <- liftIO $ makeAbsolute xconfigTarget
 
+    liftIO (createDirectoryIfMissing True _configTarget)
+
     let yconfigDatabase = (fromMaybe _configTarget xconfigDatabase)
 
     _configDatabase <- liftIO (checkFileType yconfigDatabase) >>= \case
@@ -143,10 +145,12 @@ parseConfig = do
     let databaseFile = _configDatabase </> "database.csv"
     _configPathLookup <- readPathLookup databaseFile >>= \case
       Right lk -> return lk
-      Left msg ->
-        L.criticalFailure $ "Could not read "
-        <> L.displayString databaseFile <> ": "
-        <> L.displayString msg
+      Left msg -> do
+        L.warning $ "Could not read "
+          <> L.displayString databaseFile <> ": "
+          <> L.displayString msg
+        L.info $ "Using empty database"
+        return mempty
 
     return $ Config {..}
 

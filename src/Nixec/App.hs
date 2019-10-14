@@ -57,11 +57,6 @@ defaultMain nscript = do
     info (parseConfig <**> helper) (header "nixec-builder")
   cfg <- iocfg
   mainWithConfig cfg nscript
-  where
-    parseTarget = strArgument $
-      metavar "DATABASE"
-      <> help "The path to the database to create."
-
 
 mainWithConfig :: Config -> Nixec Rule -> IO ()
 mainWithConfig cfg nm = flip runReaderT cfg $ do
