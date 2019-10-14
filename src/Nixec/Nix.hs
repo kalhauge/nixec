@@ -17,9 +17,10 @@ import Data.Text.Prettyprint.Doc
 import Nixec.Rule
 import Nixec.Command
 import Nixec.Data
+import qualified Nixec.Logger as L
 
 -- filepath
-import System.FilePath
+-- import System.FilePath
 
 -- directory
 import System.Directory
@@ -39,8 +40,8 @@ import System.Process
 import Control.Monad.IO.Class
 import Control.Exception
 import System.IO
-import Data.String
-import Data.Foldable
+-- import Data.String
+-- import Data.Foldable
 -- import System.Exit
 -- import qualified Data.List as List
 
@@ -48,40 +49,40 @@ import Data.Foldable
 import Control.Monad.Reader
 
 data NixConfig = NixConfig
-  { _nixFolder       :: FilePath
-  , _nixOverlays     :: [ FilePath ]
+  { _nixOverlays     :: [ FilePath ]
   , _nixVerbose      :: Bool
-  , _nixMkRule       :: Package
   , _nixBuildCommand :: (String, [ String ])
-  }
+  } deriving (Show, Eq)
 
 makeClassy ''NixConfig
 
 type HasNix env m = (MonadIO m, HasNixConfig env, MonadReader env m)
 
-writeNixRule :: HasNix env m
-  => RuleName
-  -> Rule
-  -> m ()
-writeNixRule rn r = do
-  file <- nixFile rn
-  liftIO . createDirectoryIfMissing True =<< view nixFolder
-  mkRule <- view nixMkRule
-  liftIO . writeFile file . show $ ruleToNix mkRule rn r
+-- writeNixRule :: HasNix env m
+--   => RuleName
+--   -> Rule
+--   -> m ()
+-- writeNixRule rn r = do
+--   file <- nixFile rn
+--   liftIO . createDirectoryIfMissing True =<< view nixFolder
+--   mkRule <- view nixMkRule
+--   liftIO . writeFile file . show $ ruleToNix mkRule rn r
 
-nixFile :: (MonadReader env m, HasNixConfig env) => RuleName -> m FilePath
-nixFile rn =
-  view nixFolder <&> \folder ->
-  folder </> show (ruleNameToNix rn) <.> "nix"
+-- nixFile :: (MonadReader env m, HasNixConfig env) => RuleName -> m FilePath
+-- nixFile rn =
+--   view nixFolder <&> \folder ->
+--   folder </> show (ruleNameToNix rn) <.> "nix"
 
 nixBuild ::
-  HasNix env m
+  (HasNix env m, L.HasLogger env)
   => String
   -> m (Maybe FilePath)
 nixBuild script = do
   (_cmd, _args) <- view nixBuildCommand
   verbose <- view nixVerbose
+
   let a = proc _cmd (_args ++ [ "-E", script ])
+  L.info $ "Running " <> L.displayShow (cmdspec a)
   out <- liftIO . try $ do
     bracket (openFile "/dev/null" WriteMode) hClose $ \devnull -> do
       let a' = a { delegate_ctlc = False
@@ -92,37 +93,38 @@ nixBuild script = do
   case out of
     Right s ->
       return $ Just (Text.unpack . Text.strip . Text.pack $ s)
-    Left (_ :: IOException) -> do
+    Left (msg :: IOException) -> do
+      L.warning $ "Build failed with " <> L.displayShow msg
       return $ Nothing
 
 withArgs :: HasNix env m => [String] -> m a -> m a
 withArgs _args =
   local (nixBuildCommand._2 %~ (++ _args))
 
-nixCheckBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
-nixCheckBuildInput =
-  local (nixVerbose .~ False)
-  . withArgs ["--readonly-mode"]
-  . nixBuildInput
+-- nixCheckBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
+-- nixCheckBuildInput =
+--   local (nixVerbose .~ False)
+--   . withArgs ["--readonly-mode"]
+--   . nixBuildInput
 
-nixBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
-nixBuildInput = \case
-  PackageInput p -> do
-    withArgs ["--no-out-link"] $
-      nixBuild =<< nixPackageScript p
-  RuleInput rn -> do
-    output <- dropExtension <$> nixFile rn
-    withArgs ["-o", output] $
-      nixBuild =<< nixRuleScript rn
-  FileInput fp -> do
-    return (Just fp)
-  InInput i ex ->
-   fmap (</> ex) <$> nixBuildInput i
+-- nixBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
+-- nixBuildInput = \case
+--   PackageInput p -> do
+--     withArgs ["--no-out-link"] $
+--       nixBuild =<< nixPackageScript p
+--   RuleInput rn -> do
+--     output <- dropExtension <$> nixFile rn
+--     withArgs ["-o", output] $
+--       nixBuild =<< nixRuleScript rn
+--   FileInput fp -> do
+--     return (Just fp)
+--   InInput i ex ->
+--    fmap (</> ex) <$> nixBuildInput i
 
-nixRuleScript :: HasNix env m => RuleName -> m String
-nixRuleScript rn = do
-  file <- nixFile rn
-  nixPackageScript' ("callPackage" <+> "./" <> fromString file <+> "{}")
+-- nixRuleScript :: HasNix env m => RuleName -> m String
+-- nixRuleScript rn = do
+--   file <- nixFile rn
+--   nixPackageScript' ("callPackage" <+> "./" <> fromString file <+> "{}")
 
 nixPackageScript :: HasNix env m => Package -> m String
 nixPackageScript = nixPackageScript' . pretty
@@ -142,11 +144,11 @@ nixPackageScript' pkg' = do
     <> vsep (map pretty overlays) <>
     "])." <> pkg'
 
-nixBuildAll :: (HasNix env m, Foldable f)
-  => f Input
-  -> m (Maybe [FilePath])
-nixBuildAll rns = do
-  fmap sequence . forM (toList rns) $ nixBuildInput
+-- nixBuildAll :: (HasNix env m, Foldable f)
+--   => f Input
+--   -> m (Maybe [FilePath])
+-- nixBuildAll rns = do
+--   fmap sequence . forM (toList rns) $ nixBuildInput
 
 ruleNameToNix :: RuleName -> Doc m
 ruleNameToNix =
@@ -166,13 +168,13 @@ inputToShell = \case
   FileInput r -> nixToShell ("../../" <> pretty r)
   InInput r fp -> inputToShell r <> "/" <> pretty fp
 
-rulesToNix :: (HasNixConfig env, MonadReader env m)
-  => [(RuleName, Rule)]
-  -> m (Doc e)
-rulesToNix rules = do
-  mkRule <- view nixMkRule
-  let rs = [ (ruleNameToNix rn, ruleToNix mkRule rn r) | (rn, r) <- rules ]
-  return $ "{ nixpkgs ? import <nixpkgs> {} }: with nixpkgs;" <+> attrset rs
+-- rulesToNix :: (HasNixConfig env, MonadReader env m)
+--   => [(RuleName, Rule)]
+--   -> m (Doc e)
+-- rulesToNix rules = do
+--   mkRule <- view nixMkRule
+--   let rs = [ (ruleNameToNix rn, ruleToNix mkRule rn r) | (rn, r) <- rules ]
+--   return $ "{ nixpkgs ? import <nixpkgs> {} }: with nixpkgs;" <+> attrset rs
 
 
 attrset :: [(Doc m, Doc m)] -> Doc m

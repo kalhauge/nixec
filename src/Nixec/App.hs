@@ -10,7 +10,9 @@ module Nixec.App where
 -- base
 import Prelude hiding (log)
 import Data.Foldable
+import Data.String
 import Data.Maybe
+import Data.List.NonEmpty (NonEmpty (..))
 import System.IO.Error
 
 -- directory
@@ -21,6 +23,12 @@ import System.FilePath
 
 -- dirtree
 import System.DirTree
+
+-- -- data-fix
+-- import Data.Fix
+
+-- vector
+import qualified Data.Vector as V
 
 -- containers
 import qualified Data.Set as Set
@@ -37,12 +45,16 @@ import Control.Lens hiding ((<.>))
 -- optparse-applicative
 import Options.Applicative hiding (Success)
 
+-- prettyprinter
+-- import Data.Text.Prettyprint.Doc
+
 -- mtl
 import Control.Monad.Reader
 import Control.Monad.Except
 
 -- Nixec
 import Nixec.Data
+import Nixec.Nix
 import Nixec.Config
 import qualified Nixec.Logger as L
 import Nixec.Rule hiding (rule)
@@ -110,129 +122,6 @@ buildDatabase trg = runExceptT . runNixec run where
       n x
 
 
--- mainWithConfig :: Config -> Nixec Rule -> IO ()
--- mainWithConfig cfg nm = flip runReaderT cfg $ do
---   trg <- fromMaybe (makeRuleName "all" []) <$> view configTarget
-
---   nixFileExist <- liftIO . doesFileExist =<< nixFile trg
-
---   doCheck <- view configCheck
---   when (doCheck || not nixFileExist) $ do
---     liftIO $ putStrLn "Build Database:"
---     continuouslyBuildDatabase
-
---   view configDryRun >>= \case
---     True -> do
---       script <- nixRuleScript trg
---       liftIO $ do
---         putStrLn "Would run following script:"
---         print script
---     False -> do
---       liftIO $ putStrLn "Build Target:"
---       nixBuildInput (RuleInput trg) >>= \case
---         Just output -> liftIO $ do
---           putStrLn "Success"
---           createDirectoryLink output "result"
---         Nothing ->
---           liftIO $ putStrLn "Failure"
-
---   where
---     continuouslyBuildDatabase = do
---       (fst <$> buildDatabase' (addRule "all" =<< nm)) >>= \case
---         Right _ ->
---           liftIO $ putStrLn "No Tasks..."
-
---         Left s -> do
---           liftIO $ do
---             putStrLn "Tasks:"
---             forM_ (Set.toAscList s) $ \rn ->
---               print ("+ " <> pretty rn)
-
---           doDryRun <- view configDryRun
---           unless doDryRun $ do
---             liftIO $ putStrLn "Computing tasks:"
---             nixBuildAll s >>= \case
---               Just _ ->
---                 continuouslyBuildDatabase
---               Nothing ->
---                 liftIO $ putStrLn "Failed building tasks"
-
-
-
--- buildDatabase' ::
---   forall env m a.
---   (HasConfig env, HasNix env m)
---   => Nixec a
---   -> m (Either (Set.Set Input) a, Map.Map RuleName Rule)
--- buildDatabase' nscript
---   = runWriterT (runExceptT . runNixec run $ nscript) where
---   run :: NixecF (MissingT m b) -> MissingT m b
---   run = \case
---     AddRule name r x -> do
---       rn <- newRuleName name
---       nixFileExist <- liftIO . doesFileExist =<< nixFile rn
---       doCheck <- view configCheck
---       unless (nixFileExist || not doCheck) $
---         writeNixRule rn r
---       tell (Map.singleton rn r)
---       view configTarget >>= \case
---         Just target
---           | rn == target ->
---               throwError (Set.singleton (RuleInput rn))
---         _ -> x rn
-
---     Scope name nm x -> do
---       r <- inScope name $ runNixec run nm
---       run (AddRule name r x)
-
---     Inspect i io na -> do
---       nixCheckBuildInput i >>= \case
---         Just output ->
---           na =<< liftIO (io output)
---         Nothing ->
---           throwError (Set.singleton i)
-
---     Seperate n1 n2 n -> do
---       trg <- view configTarget
---       (a, b) <- ExceptT . WriterT $ do
---         (e1, rls1) <- buildDatabase n1
---         (e2, rls2) <- buildDatabase n2
---         case (e1, e2) of
---           -- Both computed
---           (Right a, Right b) ->
---             return (Right (a, b), rls1 <> rls2)
-
---           -- Both failed, choose the one with the longest prefix and
---           -- report that back
---           (Left s1, Left s2) -> do
---             case trg of
---               Just target -> do
---                 let prl1 = maxPrefixLength s1
---                     prl2 = maxPrefixLength s2
---                 return $ case compare prl1 prl2 of
---                   LT -> (Left s2, rls2)
---                   GT -> (Left s1, rls1)
---                   EQ -> (Left (s1 <> s2), rls1 <> rls2)
---                 where
---                   maxInputLength = \case
---                     RuleInput f -> ruleNamePrefixLength target f
---                     _ -> 0
---                   maxPrefixLength =
---                     maximum . map maxInputLength . Set.toList
---               Nothing ->
---                 return (Left (s1 <> s2), rls1 <> rls2)
-
---           -- One failed, only include data to produce the fail
---           (Left s1, _) ->
---             return (Left s1, rls1)
-
---           -- One failed, only include data to produce the fail
---           (_, Left s2) ->
---             return (Left s2, rls2)
-
---       n (a, b)
-
-
 data AppCommand
   = ListRules
   deriving (Show, Eq)
@@ -246,15 +135,18 @@ parseAppCommand =
    )
 
 data AppConfig = AppConfig
-  { _appLogger         :: L.Logger
-  , _appNixecfile      :: FilePath
-  , _appNixecDatabase  :: FilePath
+  { _appLogger         :: !L.Logger
+  , _appNixecfile      :: !FilePath
+  , _appNixecFolder    :: !FilePath
+  , _appNixecDatabase  :: !FilePath
+  , _appNixConfig      :: !NixConfig
   } deriving (Show, Eq)
 
 parseAppConfig :: Parser (IO AppConfig)
 parseAppConfig = do
   _appLogger <-
     L.parseLogger
+
 
   ioAppNixecfile <- strOption $
     short 'f'
@@ -265,11 +157,11 @@ parseAppConfig = do
     <> metavar "NIXECFILE"
     <> showDefault
 
-  happNixecDatabase <- optional . strOption $
-    long "db"
-    <> help "the path to the Nixec database. Normally NIXECFILE/_nixec/database."
+  mappNixecFolder <- optional . strOption $
+    long "nixec-folder"
+    <> help "the path to the Nixec database. Normally NIXECFILE/../_nixec"
     <> hidden
-    <> metavar "DATABASE"
+    <> metavar "NIXECFOLDER"
 
   pure $ do
 
@@ -281,14 +173,24 @@ parseAppConfig = do
           <> L.displayString ioAppNixecfile
           <> " to be a file."
 
-    let _appNixecDatabase =
-          fromMaybe (_appNixecfile </> "_nixec/database") happNixecDatabase
+    let
+      _appNixecFolder = fromMaybe (takeDirectory _appNixecfile </> "_nixec") mappNixecFolder
+      _appNixecDatabase = _appNixecFolder </> "database"
+
+      _appNixConfig =
+        let
+          _nixOverlays = [ _appNixecFolder </> "overlays.nix" ]
+          _nixVerbose = True
+          _nixBuildCommand = ("nix-build", [])
+        in NixConfig {..}
+
 
     return $ AppConfig {..}
 
 makeClassy ''AppConfig
 
 instance L.HasLogger AppConfig where logger = appLogger
+instance HasNixConfig AppConfig where nixConfig = appNixConfig
 
 type App = ReaderT AppConfig IO
 
@@ -309,12 +211,16 @@ runapp appCmd = do
   L.info  $ "Found Nixecfile: " <> L.displayString nixecfile
 
   db <- readDatabase >>= \case
-    Just db -> return $ db
-    Nothing -> do
-      L.info "Could not read the database."
+    Right db -> do
+      L.info "Database succesfully read."
+      return $ db
+    Left missing -> do
+      L.info $ "Could not read the database: "
+        <> if Set.null missing
+        then "no database."
+        else "missing " <> L.displayShow (Set.size missing) <> " dependencies."
       calculateDatabase
-      maybe (L.criticalFailure "Could not create database.") return
-        =<< readDatabase
+      L.criticalFailure "Could not create database."
 
   case appCmd of
     ListRules -> do
@@ -326,18 +232,60 @@ runapp appCmd = do
     calculateDatabase = do
       L.info "Calculating the database"
 
+      folder <- view appNixecFolder
+
+      let db = folder </> "database"
+
+      -- First we build the database
+      withArgs ["-o", db] $ do
+        a <- nixPackageScript'
+          $ "callPackage "
+          <> fromString (folder </> "default.nix") <> " {}"
+        void $ nixBuild a
+
+
+      -- FileInput (folder </> "default.nix")
+
+      -- Then we check if anything is missing.
+
+      -- createBuildScriptFromMissing (folder </> "default.nix")
+
+      -- If it is. Generate new "default.nix" file. Repeat.
+
+     
+      -- folder <- view appNixecFolder
+      -- r <- liftIO $ Nix.parseNixFile (folder </> "default.nix")
+      -- case r of
+      --   Nix.Success r -> liftIO $ do
+      --     print (Nix.prettyNix r)
+      --     case unFix r of
+      --       Nix.NAbs _ (Fix (Nix.NRecSet l))  ->
+      --         forM_ l print
+
+      --   Nix.Failure msg ->
+      --     liftIO $ print msg
 
     -- stepDatabase = do
     --   b <- calculateDatabaseStep
-    --   missing <- lines <$> Text.readFile (b </> "missing.txt")
-    --   case missing of
-    --     [] -> return b
-    --     m -> createMissing -> stepDatabase
+    --   missing <- Csv.encode =<< BL.readFile (b </> "missing.csv")
 
-    --   undefined
-    --   -- nixBuild "{ pkgs ? import <nixpgks> {}}: pkgs.callPackage _nixec/default.nix {}"
 
-    readDatabase :: App (Maybe [(RuleName, FilePath)])
+    -- calculateDatabaseStep :: App ()
+    -- calculateDatabaseStep =
+    --   L.info "Check database status."
+    --   hixBuild
+
+    --   L.info "Buil"
+
+
+      -- case missing of
+      --   [] -> return b
+      --   m -> createMissing -> stepDatabase
+
+      -- undefined
+      -- nixBuild "{ pkgs ? import <nixpgks> {}}: pkgs.callPackage _nixec/default.nix {}"
+
+    readDatabase :: App (Either (Set.Set Input) [(RuleName, FilePath)])
     readDatabase = do
       L.info "Reading database"
       dbname <- view appNixecDatabase
@@ -349,14 +297,27 @@ runapp appCmd = do
             <> L.displayString dbname
             <> " got "
             <> L.displayShow f
-          return Nothing
+          return (Left mempty)
         Just db -> do
-          return . Just $
-            [ (ruleNameFromString n, dbname </> key)
-            | (key :: String , _ ) <- itoList (getInternalFileMap db)
-            , let (n, ext) = splitExtensions key
-            , ext == ".nix"
-            ]
+          case db ^? ix ("missing.csv" :| []) ._File of
+            Just fp -> do
+              L.info "Found missing inputs."
+              filecontent <- liftIO $ BL.readFile fp
+              case Csv.decodeByName filecontent of
+                Right (_, ms) ->
+                  return $ Left (Set.fromList . V.toList $ ms)
+                Left m ->
+                  L.criticalFailure $ "Missing.csv file "
+                    <> L.displayString fp
+                    <> " formated incorrectly: "
+                    <> L.displayShow m
+            Nothing -> do
+              return . Right $
+                [ (ruleNameFromString n, dbname </> key)
+                | (key :: String , _ ) <- itoList (getInternalFileMap db)
+                , let (n, ext) = splitExtensions key
+                , ext == ".nix"
+                ]
 
 {-
 mkDerivation {

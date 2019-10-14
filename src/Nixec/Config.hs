@@ -114,7 +114,7 @@ parseConfig = do
 
   xconfigDatabase <- optional . strOption $
     long "db"
-    <> help "the path to a database."
+    <> help "the path to the database csv file."
     <> hidden
     <> metavar "DATABASE"
 
@@ -123,8 +123,8 @@ parseConfig = do
   _configMkRule <- pure "mkRule"
 
   xconfigTarget <- strArgument $
-    metavar "DATABASE"
-    <> help "The path to the database to create."
+    metavar "NIXBASE"
+    <> help "The path to the nixbase to create."
 
   return $ flip runReaderT _configLogger $ do
 
@@ -135,19 +135,18 @@ parseConfig = do
     let yconfigDatabase = (fromMaybe _configTarget xconfigDatabase)
 
     _configDatabase <- liftIO (checkFileType yconfigDatabase) >>= \case
-      Just (Directory _) ->
+      Just (File _) ->
         liftIO $ makeAbsolute yconfigDatabase
       _ ->
         L.criticalFailure $ "Expected "
           <> L.displayString yconfigDatabase
-          <> " to be a directory"
+          <> " to be a file"
 
-    let databaseFile = _configDatabase </> "database.csv"
-    _configPathLookup <- readPathLookup databaseFile >>= \case
+    _configPathLookup <- readPathLookup _configDatabase >>= \case
       Right lk -> return lk
       Left msg -> do
         L.warning $ "Could not read "
-          <> L.displayString databaseFile <> ": "
+          <> L.displayString _configDatabase <> ": "
           <> L.displayString msg
         L.info $ "Using empty database"
         return mempty
