@@ -1,6 +1,7 @@
 { mkDerivation, base, bytestring, cassava, containers, directory
-, dirtree, filepath, free, hpack, lens, mtl, optparse-applicative
-, prettyprinter, process, stdenv, text, transformers
+, dirtree, filepath, free, hnix, hpack, lens, mtl
+, optparse-applicative, prettyprinter, process, stdenv, text
+, transformers, vector
 }:
 mkDerivation {
   pname = "nixec";
@@ -10,14 +11,14 @@ mkDerivation {
   isExecutable = true;
   libraryHaskellDepends = [
     base bytestring cassava containers directory dirtree filepath free
-    lens mtl optparse-applicative prettyprinter process text
-    transformers
+    hnix lens mtl optparse-applicative prettyprinter process text
+    transformers vector
   ];
   libraryToolDepends = [ hpack ];
   executableHaskellDepends = [
     base bytestring cassava containers directory dirtree filepath free
-    lens mtl optparse-applicative prettyprinter process text
-    transformers
+    hnix lens mtl optparse-applicative prettyprinter process text
+    transformers vector
   ];
   preConfigure = "hpack";
   homepage = "https://github.com/kalhauge/nixec#readme";

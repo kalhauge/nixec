@@ -13,6 +13,12 @@ import Control.Lens
 -- cassava
 import qualified Data.Csv as Csv
 
+-- filepath
+import System.FilePath
+
+-- vector
+import qualified Data.Vector as V
+
 -- base
 import qualified Data.List.NonEmpty as NonEmpty
 import Control.Monad.IO.Class
@@ -30,6 +36,7 @@ import Data.Text.Prettyprint.Doc
 -- text
 import qualified Data.Text as Text
 import Data.Text.Lazy.Builder
+import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Lazy.IO as LazyText
 
 type Name = Text.Text
@@ -46,11 +53,22 @@ makeRuleName n s = RuleName $ n NonEmpty.:| s
 topRuleName :: RuleName -> Name
 topRuleName (RuleName n) = NonEmpty.head n
 
+ruleNameToText :: RuleName -> Text.Text
+ruleNameToText =
+  LazyText.toStrict . toLazyText . displayRuleName
+
 ruleNameFromText :: Text.Text -> RuleName
 ruleNameFromText =
   RuleName
   . fromJust . NonEmpty.nonEmpty
   . reverse . Text.split (== '-')
+
+ruleNameFromString :: String -> RuleName
+ruleNameFromString =
+  RuleName
+  . fromJust . NonEmpty.nonEmpty
+  . reverse . Text.split (== '-')
+  . Text.pack
 
 ruleNameInScope :: RuleName -> Scope -> Bool
 ruleNameInScope (RuleName n) sp =
@@ -65,8 +83,6 @@ ruleNamePrefixLength =
       (a:as, b:bs)
         | a == b -> 1 + (longestPrefix as bs)
       _ -> 0
-
-  
 
 displayRuleName :: RuleName -> Builder
 displayRuleName =
@@ -83,13 +99,20 @@ superPackage :: Package -> Package
 superPackage (Package p)=
   Package (NonEmpty.head p NonEmpty.:| [])
 
+packageFromText :: Text.Text -> Package
+packageFromText = Package
+  . fromJust . NonEmpty.nonEmpty
+  . Text.split (=='.')
+
+packageToText :: Package -> Text.Text
+packageToText (Package n) =
+  Text.intercalate "-" (NonEmpty.toList n)
+
 instance IsString Package where
-  fromString = Package
-    . fromJust . NonEmpty.nonEmpty
-    . Text.split (=='.') . Text.pack
+  fromString = packageFromText . Text.pack
 
 instance Pretty Package where
-  pretty (Package n) = pretty $ Text.intercalate "." (NonEmpty.toList n)
+  pretty = pretty . packageToText
 
 
 -- | We have different kinds of inputs
@@ -164,8 +187,61 @@ instance Csv.FromField RuleName where
   parseField a =
     ruleNameFromText <$> Csv.parseField a
 
+instance Csv.ToField RuleName where
+  toField = Csv.toField . ruleNameToText
+
+instance Csv.ToField Package where
+  toField = Csv.toField . packageToText
+
 instance Csv.FromNamedRecord NixecStats where
   parseNamedRecord m = do
     _statsRuleName <- m Csv..: "rule"
     _statsExitCode <- m Csv..: "exitcode"
     pure $ NixecStats {..}
+
+
+instance Csv.FromField Package where
+  parseField = fmap packageFromText . Csv.parseField
+
+instance Csv.FromNamedRecord Input where
+  parseNamedRecord m = do
+    itype <- m Csv..: "type"
+    a <- case itype :: Text.Text of
+      "rule"    -> RuleInput <$> m Csv..: "value"
+      "package" -> PackageInput <$> m Csv..: "value"
+      "file"    -> FileInput <$> m Csv..: "value"
+      _ -> mzero
+    file <- m Csv..: "file"
+    return $ maybe a (InInput a) file
+
+instance Csv.DefaultOrdered Input where
+  headerOrder _ = V.fromList [ "type", "value", "file" ]
+
+instance Csv.ToNamedRecord Input where
+  toNamedRecord = go Nothing where
+    go a = \case
+      RuleInput r -> Csv.namedRecord
+        [ "type" Csv..= ("rule" :: Text.Text)
+        , "value" Csv..= r
+        , "file" Csv..= a
+        ]
+      PackageInput r -> Csv.namedRecord
+        [ "type" Csv..= ("package" :: Text.Text)
+        , "value" Csv..= r
+        , "file" Csv..= a
+        ]
+      FileInput r -> Csv.namedRecord
+        [ "type" Csv..= ("file" :: Text.Text)
+        , "value" Csv..= r
+        , "file" Csv..= a
+        ]
+      InInput r f ->
+        go (Just $ maybe f (f </>) a) r
+
+newtype PathLookup = PathLookup { unPathLookup :: (Input, FilePath) }
+
+instance Csv.FromNamedRecord PathLookup where
+  parseNamedRecord m = do
+    i <- Csv.parseNamedRecord m
+    o <- m Csv..: "output"
+    return $ PathLookup (i, o)

@@ -66,8 +66,8 @@ writeNixRule :: HasNix env m
 writeNixRule rn r = do
   file <- nixFile rn
   liftIO . createDirectoryIfMissing True =<< view nixFolder
-  script <- ruleToNix rn r
-  liftIO . writeFile file $ show script
+  mkRule <- view nixMkRule
+  liftIO . writeFile file . show $ ruleToNix mkRule rn r
 
 nixFile :: (MonadReader env m, HasNixConfig env) => RuleName -> m FilePath
 nixFile rn =
@@ -170,7 +170,8 @@ rulesToNix :: (HasNixConfig env, MonadReader env m)
   => [(RuleName, Rule)]
   -> m (Doc e)
 rulesToNix rules = do
-  rs <- mapM (\r -> (ruleNameToNix (r^._1),) <$> uncurry ruleToNix r) rules
+  mkRule <- view nixMkRule
+  let rs = [ (ruleNameToNix rn, ruleToNix mkRule rn r) | (rn, r) <- rules ]
   return $ "{ nixpkgs ? import <nixpkgs> {} }: with nixpkgs;" <+> attrset rs
 
 
@@ -195,73 +196,69 @@ letlist lst inexp =
   <+> inexp
 
 ruleToNix ::
-  (HasNixConfig env, MonadReader env m) => RuleName -> Rule -> m (Doc e)
-ruleToNix rn r = do
-  header <- mkHeader <$> view nixMkRule
-  scrpt <- ruleToNixDrv rn r
-  return $ header <> ":" <> line <> scrpt
+  Package -> RuleName -> Rule -> Doc e
+ruleToNix mkRule rn r =
+  header <> ":" <> line <> ruleToNixDrv mkRule rn r
   where
-    mkHeader mkRule = encloseSep "{ " " }" ", " $
-      ["stdenv", "callPackage", "time"]
-      ++
-      [ pretty (superPackage p)
-      | p <- mkRule:toListOf (folding ruleInputs.cosmosOf (_InInput._1)._PackageInput) r
-      ]
+  header = encloseSep "{ " " }" ", " $
+    ["stdenv", "callPackage", "time"]
+    ++
+    [ pretty (superPackage p)
+    | p <- mkRule:toListOf (folding ruleInputs.cosmosOf (_InInput._1)._PackageInput) r
+    ]
 
 ruleToNixDrv ::
-  (HasNixConfig env, MonadReader env m) => RuleName -> Rule -> m (Doc e)
-ruleToNixDrv rn r = do
-  mkRule <- view nixMkRule
-  return $
-    pretty mkRule <+>
-      attrset
-      [ ( "name"
-        , nixstring (ruleNameToNix rn)
-        )
-      , ( "buildInputs"
-        , encloseSep "[" "]" " "
-          [ pretty p
-          | OnPath p <- r ^. ruleRequires
-          ]
-        )
-      , ( "command"
-        , "builtins.toFile" <+> dquotes "run.sh" <+>
-          script (renderCommands (r ^. ruleCommands))
-        )
-      , ( "unpackPhase"
-        , ( script . vcat . concat $
-            [ [ "ln -s" <+> inputToShell i <+> squotes (pretty fp)
-              | LinkTo fp i <- r ^. ruleRequires
-              ]
-            , [ "ln -s $command run.sh"
-              ]
+  Package -> RuleName -> Rule -> Doc e
+ruleToNixDrv mkRule rn r =
+  pretty mkRule <+>
+    attrset
+    [ ( "name"
+      , nixstring (ruleNameToNix rn)
+      )
+    , ( "buildInputs"
+      , encloseSep "[" "]" " "
+        [ pretty p
+        | OnPath p <- r ^. ruleRequires
+        ]
+      )
+    , ( "command"
+      , "builtins.toFile" <+> dquotes "run.sh" <+>
+        script (renderCommands (r ^. ruleCommands))
+      )
+    , ( "unpackPhase"
+      , ( script . vcat . concat $
+          [ [ "ln -s" <+> inputToShell i <+> squotes (pretty fp)
+            | LinkTo fp i <- r ^. ruleRequires
             ]
-          )
-        )
-      , ( "buildPhase"
-        , script . vcat . concat $
-          [ [ "export " <> pretty n <> "=" <> dquotes (inputToShell i)
-            | Env n i <- r ^. ruleRequires
-            ]
-          -- , [ "timeout" <+> pretty timelimit ]
-          , [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
-            , splitcommand
-              [ "${time}/bin/time", "--format"
-              , dquotes ((pretty rn) <> ",%e,%U,%S,%M,%x")
-              , "--append", "--output", "times.csv"
-              , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
-              , "||:"]
-            , "sed -i -e '/Command/d' 'times.csv'"
+          , [ "ln -s $command run.sh"
             ]
           ]
         )
-      , ( "installPhase"
-        , script . vcat $
-          [ "mkdir -p $out"
-          , "mv * $out"
+      )
+    , ( "buildPhase"
+      , script . vcat . concat $
+        [ [ "export " <> pretty n <> "=" <> dquotes (inputToShell i)
+          | Env n i <- r ^. ruleRequires
           ]
-        )
-      ]
+        -- , [ "timeout" <+> pretty timelimit ]
+        , [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
+          , splitcommand
+            [ "${time}/bin/time", "--format"
+            , dquotes ((pretty rn) <> ",%e,%U,%S,%M,%x")
+            , "--append", "--output", "times.csv"
+            , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
+            , "||:"]
+          , "sed -i -e '/Command/d' 'times.csv'"
+          ]
+        ]
+      )
+    , ( "installPhase"
+      , script . vcat $
+        [ "mkdir -p $out"
+        , "mv * $out"
+        ]
+      )
+    ]
   where
     script :: Doc m -> Doc m
     script a = vcat $ [ "''", indent 2 a , "''"]

@@ -28,6 +28,8 @@ dependencies:
   - containers
   - transformers
   - dirtree
+  - hnix
+  - vector
 
 library:
   source-dirs: src

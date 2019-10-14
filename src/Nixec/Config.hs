@@ -1,4 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ApplicativeDo #-}
@@ -6,9 +8,36 @@ module Nixec.Config where
 
 -- base
 import Prelude hiding (log)
+import Data.Maybe
+import System.IO.Error
 
--- text
-import qualified Data.Text as Text
+-- -- text
+-- import qualified Data.Text as Text
+
+-- dirtree
+import System.DirTree
+
+-- directory
+import System.Directory
+
+-- filepath
+import System.FilePath
+
+-- vector
+import qualified Data.Vector as V
+
+-- cassava
+import qualified Data.Csv as Csv
+
+-- containers
+import qualified Data.Map as Map
+
+-- mtl
+import Control.Monad.Reader
+import Control.Monad.Except
+
+-- bytestring
+import qualified Data.ByteString.Lazy as BL
 
 -- lens
 import Control.Lens hiding ((<.>))
@@ -18,18 +47,17 @@ import Options.Applicative hiding (Success)
 
 -- nixec
 import Nixec.Data
+import Nixec.Rule
+import qualified Nixec.Logger as L
 import Nixec.Nix
 
-data Action
-  = RunAction
-
 data Config = Config
-  { _configScope     :: Scope
-  , _configNixConfig :: NixConfig
-  , _configTarget    :: Maybe RuleName
-  , _configDryRun    :: Bool
-  , _configCheck     :: Bool
-  , _configAction    :: Action
+  { _configScope      :: !Scope
+  , _configLogger     :: !L.Logger
+  , _configDatabase   :: !FilePath
+  , _configPathLookup :: !(Map.Map Input FilePath)
+  , _configTarget     :: !FilePath
+  , _configMkRule     :: !Package
   }
 
 -- defaultConfig :: Config
@@ -41,55 +69,99 @@ data Config = Config
 
 makeClassy ''Config
 
-parseConfig :: Parser Config
+-- | Update the scope of a config
+inScope ::
+  (MonadReader env m, HasConfig env)
+  => Name
+  -> m a
+  -> m a
+inScope name =
+  local $ configScope %~ (name:)
+
+-- | Create a new rule
+newRuleName ::
+  (HasConfig env, MonadReader env m)
+  => Name
+  -> m RuleName
+newRuleName name = do
+  makeRuleName name <$> view configScope
+
+-- | Return a Maybe an absolute FilePath.
+lookupDatabase ::
+  (HasConfig env, MonadReader env m)
+  => Input
+  -> m (Maybe FilePath)
+lookupDatabase i = do
+  pl <- view configPathLookup
+  return $ Map.lookup i pl
+
+-- | Write Rule to the Target
+writeRule ::
+  (HasConfig env, MonadReader env m, MonadIO m)
+  => FilePath
+  -> RuleName
+  -> Rule
+  -> m ()
+writeRule fp rn r = do
+  mkRule <- view configMkRule
+  liftIO
+    . writeFile (fp </> show (ruleNameToNix rn) <.> "nix")
+    . show $ ruleToNix mkRule rn r
+
+parseConfig :: Parser (IO Config)
 parseConfig = do
   _configScope <- pure []
 
-  _configNixConfig <- do
-    _nixOverlays <-
-      fmap ("overlay.nix":) . many . strOption
-      $ short 'O'
-      <> long "overlays"
-      <> metavar "FILE"
-      <> help "Nix overlays (default: 'overlay.nix')"
-      <> hidden
+  xconfigDatabase <- optional . strOption $
+    long "db"
+    <> help "the path to a database."
+    <> hidden
+    <> metavar "DATABASE"
 
-    _nixFolder <- pure "_nixex/nix"
+  _configLogger <- L.parseLogger
 
-    _nixBuildCommand <- pure ("nix-build", [])
+  _configMkRule <- pure "mkRule"
 
-    _nixMkRule <- pure "mkRule"
+  xconfigTarget <- strArgument $
+    metavar "DATABASE"
+    <> help "The path to the database to create."
 
-    _nixVerbose <- switch $
-      short 'V'
-      <> help "show the output of running the nixscripts."
+  return $ flip runReaderT _configLogger $ do
 
-    pure $ NixConfig {..}
+    _configTarget <- liftIO $ makeAbsolute xconfigTarget
 
-  _configAction <- pure $ RunAction
-    -- hsubparser . fold $
-    -- [ command "list" $ info (pure ListAction)
-    --   (progDesc "Print list of rules")
-    -- , command "run" $ info
-    --   (ExecAction .
-    --   (progDesc "run derivations")
-    -- ]
-  _configDryRun <- switch $
-    long "dry"
-    <> help "don't actually exeucute any nix-scripts."
+    let yconfigDatabase = (fromMaybe _configTarget xconfigDatabase)
 
-  _configCheck <- switch $
-    long "check"
-    <> help "check that the database is correct."
+    _configDatabase <- liftIO (checkFileType yconfigDatabase) >>= \case
+      Just (Directory _) ->
+        liftIO $ makeAbsolute yconfigDatabase
+      _ ->
+        L.criticalFailure $ "Expected "
+          <> L.displayString yconfigDatabase
+          <> " to be a directory"
 
-  _configTarget <-
-    optional
-    . fmap (ruleNameFromText . Text.pack)
-    . strArgument
-    $ metavar "RULE"
-      <> help "the rule to run."
+    let databaseFile = _configDatabase </> "database.csv"
+    _configPathLookup <- readPathLookup databaseFile >>= \case
+      Right lk -> return lk
+      Left msg ->
+        L.criticalFailure $ "Could not read "
+        <> L.displayString databaseFile <> ": "
+        <> L.displayString msg
 
-  pure $ Config {..}
+    return $ Config {..}
 
-instance HasNixConfig Config where
-  nixConfig = configNixConfig
+  where
+    readPathLookup db = runExceptT $ do
+      bs <- withExceptT show . tryIOErrorT $ BL.readFile db
+      (_, items) <- liftEither $ Csv.decodeByName bs
+      return . Map.fromList . map (unPathLookup) . V.toList $ items
+
+    tryIOErrorT = ExceptT . liftIO . tryIOError
+
+
+
+-- instance HasNixConfig Config where
+--   nixConfig = configNixConfig
+
+instance L.HasLogger Config where
+  logger = configLogger

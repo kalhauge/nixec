@@ -48,7 +48,7 @@ import qualified Data.Text.Lazy.IO as Text
 data Logger = Logger
   { _loggerHandle :: Handle
   , _loggerLevel :: Priority
-  }
+  } deriving (Show, Eq)
 
 data Priority
   = DEBUG
@@ -94,7 +94,6 @@ critical :: LoggerIO env m => Builder -> m ()
 critical = log CRITICAL
 
 
-
 -- | Exit the program with error message
 criticalFailure :: LoggerIO env m => Builder -> m a
 criticalFailure msg = do
@@ -115,14 +114,17 @@ displayString =
 
 instance Display Priority where display = displayShow
 
-
 parseLogger :: Parser Logger
 parseLogger = do
   _loggerHandle <- pure stderr
   _loggerLevel <- do
     verbosity <- count $ short 'v' <> hidden <> help "make more verbose."
     quiet <- count $ short 'q' <> hidden <> help "make more quiet."
-    return ( toEnum $ 2 + verbosity - quiet )
+    return $
+      toEnum
+      . min (fromEnum CRITICAL)
+      . max (fromEnum DEBUG)
+      $ 2 - verbosity + quiet
 
   return $ Logger {..}
   where count = fmap length . many . flag' ()
