@@ -301,16 +301,17 @@ nixMissing missing = Nix.prettyNix $
   , ("phases", Nix.mkStr "buildPhase")
   , ("buildInputs", Nix.mkList [Nix.mkSym "nixec-builder"])
   , ("db", Fix . Nix.NStr . Nix.DoubleQuoted $ concat
-      [ [ Nix.Plain "type,name,value,output\n"]
+      [ [ Nix.Plain "type,value,file,output"]
       , concat
         [ ( Nix.Plain $
-            ( Text.strip . Text.decodeUtf8 . BL.toStrict
-            $ Csv.encodeDefaultOrderedByNameWith
-              (Csv.defaultEncodeOptions { Csv.encIncludeHeader = False })
-              [i]
-            ) <> ","
+            "\n"
+            <> ( Text.strip . Text.decodeUtf8 . BL.toStrict
+                 $ Csv.encodeDefaultOrderedByNameWith
+                 (Csv.defaultEncodeOptions { Csv.encIncludeHeader = False })
+                 [i]
+               )
+            <> ","
           ) : inputToNix i
-          ++ [Nix.Plain "\n"]
         | i <- Set.toList missing
         ]
       ]
@@ -326,12 +327,15 @@ nixMissing missing = Nix.prettyNix $
   where
     inputToNix = \case
       PackageInput t -> [ Nix.Antiquoted $ Nix.mkSym (packageToText t) ]
-      RuleInput t -> [ Nix.Antiquoted $ Nix.mkRelPath (ruleNameToString t <.> "nix") ]
+      RuleInput t -> [ Nix.Antiquoted $
+                       Nix.mkSym "callPackage"
+                       Nix.@@ Nix.mkRelPath ("rules" </> ruleNameToString t <.> "nix")
+                       Nix.@@ Nix.attrsE []
+                     ]
       FileInput t -> [ Nix.Antiquoted $ Nix.mkPath False t ]
       InInput t b -> inputToNix t ++ [ Nix.Plain (Text.pack $ "/" <> b) ]
   
     mkIStr = Fix . Nix.NStr . Nix.Indented 2
-
 
 nixCallFile :: FilePath -> Nix.NExpr
 nixCallFile fp =

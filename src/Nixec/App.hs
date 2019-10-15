@@ -76,6 +76,9 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
   L.info "Running Nixec"
   trg <- view configTarget
 
+  pths <- view configPathLookup
+  L.info $ "Running paths" <> L.displayShow pths
+
   liftIO $ createDirectoryIfMissing True (trg </> "rules")
   buildDatabase (trg </> "rules") (void . addRule "all" =<< nm) >>= \case
     Right () -> L.info "Success"
@@ -255,17 +258,22 @@ runapp appCmd = do
       -- First we build the database
       withArgs ["-o", db] $ do
         a <- nixPackageScript' (nixCallFile (folder </> "default.nix"))
-        liftIO $ putStrLn a
         void $ nixBuild a
 
-      let file = folder </> "database" </> "database.nix"
+      iterate db
+
+
+    iterate db = do
+      let file = db </> "database.nix"
       b <- liftIO $ doesFileExist file
       if b
         then do
           withArgs ["-o", db] $ do
-            a <- nixPackageScript' (nixCallFileWithDB file)
-            liftIO $ putStrLn a
-            void $ nixBuild a
+            a <- nixPackageScript' (nixCallFile file)
+            nixBuild a >>= \case
+              Just x -> iterate db
+              Nothing ->
+                L.criticalFailure "Could not build database."
         else
           return ()
 
