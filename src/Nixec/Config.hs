@@ -8,14 +8,11 @@ module Nixec.Config where
 
 -- base
 import Prelude hiding (log)
-import Data.Maybe
+import Data.Foldable
 import System.IO.Error
 
 -- -- text
 -- import qualified Data.Text as Text
-
--- dirtree
-import System.DirTree
 
 -- directory
 import System.Directory
@@ -54,7 +51,6 @@ import Nixec.Nix
 data Config = Config
   { _configScope      :: !Scope
   , _configLogger     :: !L.Logger
-  , _configDatabase   :: !FilePath
   , _configPathLookup :: !(Map.Map Input FilePath)
   , _configTarget     :: !FilePath
   , _configMkRule     :: !Package
@@ -112,7 +108,7 @@ parseConfig :: Parser (IO Config)
 parseConfig = do
   _configScope <- pure []
 
-  xconfigDatabase <- optional . strOption $
+  xconfigDatabase <- many . strOption $
     long "db"
     <> help "the path to the database csv file."
     <> hidden
@@ -132,24 +128,14 @@ parseConfig = do
 
     liftIO (createDirectoryIfMissing True _configTarget)
 
-    let yconfigDatabase = (fromMaybe _configTarget xconfigDatabase)
-
-    _configDatabase <- liftIO (checkFileType yconfigDatabase) >>= \case
-      Just (File _) ->
-        liftIO $ makeAbsolute yconfigDatabase
-      _ ->
-        L.criticalFailure $ "Expected "
-          <> L.displayString yconfigDatabase
-          <> " to be a file"
-
-    _configPathLookup <- readPathLookup _configDatabase >>= \case
-      Right lk -> return lk
-      Left msg -> do
-        L.warning $ "Could not read "
-          <> L.displayString _configDatabase <> ": "
-          <> L.displayString msg
-        L.info $ "Using empty database"
-        return mempty
+    _configPathLookup <- fmap fold . forM xconfigDatabase $ \db ->
+      readPathLookup db >>= \case
+        Right lk -> return lk
+        Left msg -> do
+          L.warning $ "Could not read "
+            <> L.displayString db <> ": "
+            <> L.displayString msg
+          return mempty
 
     return $ Config {..}
 

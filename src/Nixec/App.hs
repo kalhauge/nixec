@@ -10,7 +10,7 @@ module Nixec.App where
 -- base
 import Prelude hiding (log)
 import Data.Foldable
-import Data.String
+-- import Data.String
 import Data.Maybe
 import Data.List.NonEmpty (NonEmpty (..))
 import System.IO.Error
@@ -32,6 +32,7 @@ import qualified Data.Vector as V
 
 -- containers
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 
 -- bytestring
 import qualified Data.ByteString.Lazy as BL
@@ -74,12 +75,21 @@ mainWithConfig :: Config -> Nixec Rule -> IO ()
 mainWithConfig cfg nm = flip runReaderT cfg $ do
   L.info "Running Nixec"
   trg <- view configTarget
-  buildDatabase trg (void . addRule "all" =<< nm) >>= \case
+
+  liftIO $ createDirectoryIfMissing True (trg </> "rules")
+  buildDatabase (trg </> "rules") (void . addRule "all" =<< nm) >>= \case
     Right () -> L.info "Success"
     Left msg -> do
       L.info "Missing computations"
       liftIO . BL.writeFile (trg </> "missing.csv") $
         Csv.encodeDefaultOrderedByName (toList msg)
+
+      liftIO . writeFile (trg </> "database.nix")
+        $ show (nixMissing msg)
+
+  db <- view configPathLookup
+  liftIO . BL.writeFile (trg </> "database.csv")
+    $ Csv.encodeDefaultOrderedByName (map PathLookup $ Map.toList db)
 
 buildDatabase ::
   forall env m a.
@@ -179,7 +189,7 @@ parseAppConfig = do
 
       _appNixConfig =
         let
-          _nixOverlays = [ _appNixecFolder </> "overlays.nix" ]
+          _nixOverlays = [ _appNixecFolder </> "overlay.nix" ]
           _nixVerbose = True
           _nixBuildCommand = ("nix-build", [])
         in NixConfig {..}
@@ -210,6 +220,8 @@ runapp appCmd = do
   L.debug $ "Config: " <> L.displayShow cfg
   L.info  $ "Found Nixecfile: " <> L.displayString nixecfile
 
+  calculateDatabase
+ 
   db <- readDatabase >>= \case
     Right db -> do
       L.info "Database succesfully read."
@@ -219,9 +231,13 @@ runapp appCmd = do
         <> if Set.null missing
         then "no database."
         else "missing " <> L.displayShow (Set.size missing) <> " dependencies."
+
+      liftIO $ print (nixMissing missing)
+
       calculateDatabase
       L.criticalFailure "Could not create database."
 
+  L.info "done."
   case appCmd of
     ListRules -> do
       forM_ db $ \(rn, _) -> liftIO $ do
@@ -238,59 +254,26 @@ runapp appCmd = do
 
       -- First we build the database
       withArgs ["-o", db] $ do
-        a <- nixPackageScript'
-          $ "callPackage "
-          <> fromString (folder </> "default.nix") <> " {}"
+        a <- nixPackageScript' (nixCallFile (folder </> "default.nix"))
+        liftIO $ putStrLn a
         void $ nixBuild a
 
-
-      -- FileInput (folder </> "default.nix")
-
-      -- Then we check if anything is missing.
-
-      -- createBuildScriptFromMissing (folder </> "default.nix")
-
-      -- If it is. Generate new "default.nix" file. Repeat.
-
-     
-      -- folder <- view appNixecFolder
-      -- r <- liftIO $ Nix.parseNixFile (folder </> "default.nix")
-      -- case r of
-      --   Nix.Success r -> liftIO $ do
-      --     print (Nix.prettyNix r)
-      --     case unFix r of
-      --       Nix.NAbs _ (Fix (Nix.NRecSet l))  ->
-      --         forM_ l print
-
-      --   Nix.Failure msg ->
-      --     liftIO $ print msg
-
-    -- stepDatabase = do
-    --   b <- calculateDatabaseStep
-    --   missing <- Csv.encode =<< BL.readFile (b </> "missing.csv")
-
-
-    -- calculateDatabaseStep :: App ()
-    -- calculateDatabaseStep =
-    --   L.info "Check database status."
-    --   hixBuild
-
-    --   L.info "Buil"
-
-
-      -- case missing of
-      --   [] -> return b
-      --   m -> createMissing -> stepDatabase
-
-      -- undefined
-      -- nixBuild "{ pkgs ? import <nixpgks> {}}: pkgs.callPackage _nixec/default.nix {}"
+      let file = folder </> "database" </> "database.nix"
+      b <- liftIO $ doesFileExist file
+      if b
+        then do
+          withArgs ["-o", db] $ do
+            a <- nixPackageScript' (nixCallFileWithDB file)
+            liftIO $ putStrLn a
+            void $ nixBuild a
+        else
+          return ()
 
     readDatabase :: App (Either (Set.Set Input) [(RuleName, FilePath)])
     readDatabase = do
       L.info "Reading database"
       dbname <- view appNixecDatabase
-      f <- liftIO . tryIOError $ readDirTree return dbname
-
+      f <- liftIO . tryIOError $ readDirTree return (dbname </> "rules")
       case f ^? _Right._Directory of
         Nothing -> do
           L.error $ "Expected a directory with nix files at "

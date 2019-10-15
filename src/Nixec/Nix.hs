@@ -13,6 +13,18 @@ import Control.Lens hiding ((<.>))
 -- prettyprinter
 import Data.Text.Prettyprint.Doc
 
+-- containers
+import qualified Data.Set as Set
+
+-- data-fix
+import Data.Fix
+
+-- filepath
+import System.FilePath
+
+-- hnix
+import qualified Nix
+
 -- nixec
 import Nixec.Rule
 import Nixec.Command
@@ -22,14 +34,18 @@ import qualified Nixec.Logger as L
 -- filepath
 -- import System.FilePath
 
+-- cassava
+import qualified Data.Csv as Csv
+
 -- directory
 import System.Directory
 
 -- bytestring
--- import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.ByteString.Lazy.Char8 as BL
 
 -- text
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 
 -- import Data.Text.Encoding
 
@@ -126,23 +142,25 @@ withArgs _args =
 --   file <- nixFile rn
 --   nixPackageScript' ("callPackage" <+> "./" <> fromString file <+> "{}")
 
-nixPackageScript :: HasNix env m => Package -> m String
-nixPackageScript = nixPackageScript' . pretty
+-- nixPackageScript :: HasNix env m => Package -> m String
+-- nixPackageScript = nixPackageScript' . pretty
 
 nixPackageScript' ::
   HasNix env m
-  => Doc x
+  => Nix.NExpr
   -> m String
 nixPackageScript' pkg' = do
   fps <- view nixOverlays
-  overlays <- fmap concat . forM fps $ \fp -> do
-    b <- liftIO $ doesFileExist fp
-    return [ "(import ./" ++ fp ++ ")" | b ]
 
-  return . show $
-    "((import <nixpkgs> {}).appendOverlays ["
-    <> vsep (map pretty overlays) <>
-    "])." <> pkg'
+  overlays <- fmap concat . forM fps $ \fp -> do
+   liftIO (doesFileExist fp) <&> \b ->
+     [ Nix.mkSym "import" Nix.@@ Nix.mkPath False fp | b ]
+
+  return . show . Nix.prettyNix $
+    Nix.mkWith
+      ((Nix.mkSym "import" Nix.@@ (Nix.mkEnvPath "nixpkgs") Nix.@@ Nix.attrsE []) Nix.@. "appendOverlays"
+        Nix.@@ Nix.mkList overlays)
+      pkg'
 
 -- nixBuildAll :: (HasNix env m, Foldable f)
 --   => f Input
@@ -264,6 +282,66 @@ ruleToNixDrv mkRule rn r =
   where
     script :: Doc m -> Doc m
     script a = vcat $ [ "''", indent 2 a , "''"]
+
+nixMissing :: Set.Set Input -> Doc m
+nixMissing missing = Nix.prettyNix $
+  Nix.mkFunction (
+    Nix.mkParamset (
+      [ ("stdenv", Nothing)
+      , ("callPackage", Nothing)
+      , ("nixec-builder", Nothing)
+      ] ++ [ (packageToText (superPackage p), Nothing)
+           | p <- toListOf (folded.cosmosOf (_InInput._1)._PackageInput) missing
+           ]
+      )
+      False)
+  $ Nix.mkSym "stdenv.mkDerivation" Nix.@@
+  Nix.attrsE
+  [ ("name", Nix.mkStr "database")
+  , ("phases", Nix.mkStr "buildPhase")
+  , ("buildInputs", Nix.mkList [Nix.mkSym "nixec-builder"])
+  , ("db", Fix . Nix.NStr . Nix.DoubleQuoted $ concat
+      [ [ Nix.Plain "type,name,value,output\n"]
+      , concat
+        [ ( Nix.Plain $
+            ( Text.strip . Text.decodeUtf8 . BL.toStrict
+            $ Csv.encodeDefaultOrderedByNameWith
+              (Csv.defaultEncodeOptions { Csv.encIncludeHeader = False })
+              [i]
+            ) <> ","
+          ) : inputToNix i
+          ++ [Nix.Plain "\n"]
+        | i <- Set.toList missing
+        ]
+      ]
+    )
+  , ("buildPhase", mkIStr
+      [ Nix.Plain "mkdir $out\n"
+      , Nix.Plain "echo \"$db\" > $out/extra-paths.csv\n"
+      , Nix.Plain "ln -s " , Nix.Antiquoted (Nix.mkRelPath "./."), Nix.Plain " $out/previous\n"
+      , Nix.Plain "nixec-builder -vv --db $out/previous/database.csv --db $out/extra-paths.csv $out"
+      ]
+    )
+  ]
+  where
+    inputToNix = \case
+      PackageInput t -> [ Nix.Antiquoted $ Nix.mkSym (packageToText t) ]
+      RuleInput t -> [ Nix.Antiquoted $ Nix.mkRelPath (ruleNameToString t <.> "nix") ]
+      FileInput t -> [ Nix.Antiquoted $ Nix.mkPath False t ]
+      InInput t b -> inputToNix t ++ [ Nix.Plain (Text.pack $ "/" <> b) ]
+  
+    mkIStr = Fix . Nix.NStr . Nix.Indented 2
+
+
+nixCallFile :: FilePath -> Nix.NExpr
+nixCallFile fp =
+  Nix.mkSym "callPackage" Nix.@@ Nix.mkPath False fp Nix.@@ Nix.attrsE []
+
+nixCallFileWithDB :: FilePath -> Nix.NExpr
+nixCallFileWithDB fp =
+  let path = Nix.mkPath False fp
+  in Nix.mkSym "callPackage" Nix.@@ path Nix.@@ Nix.attrsE
+     [("database", Nix.mkStr "hello")]
 
 nixstring :: Doc m -> Doc m
 nixstring = enclose

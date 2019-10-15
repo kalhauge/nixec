@@ -57,6 +57,10 @@ ruleNameToText :: RuleName -> Text.Text
 ruleNameToText =
   LazyText.toStrict . toLazyText . displayRuleName
 
+ruleNameToString :: RuleName -> String
+ruleNameToString =
+  Text.unpack . ruleNameToText
+
 ruleNameFromText :: Text.Text -> RuleName
 ruleNameFromText =
   RuleName
@@ -245,3 +249,10 @@ instance Csv.FromNamedRecord PathLookup where
     i <- Csv.parseNamedRecord m
     o <- m Csv..: "output"
     return $ PathLookup (i, o)
+
+instance Csv.DefaultOrdered PathLookup where
+  headerOrder _ = V.fromList [ "type", "value", "file", "output"]
+
+instance Csv.ToNamedRecord PathLookup where
+  toNamedRecord (PathLookup (i, fp)) =
+    Csv.toNamedRecord i <> Csv.namedRecord [ "output" Csv..= fp ]

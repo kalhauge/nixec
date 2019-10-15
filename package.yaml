@@ -30,6 +30,7 @@ dependencies:
   - dirtree
   - hnix
   - vector
+  - data-fix
 
 library:
   source-dirs: src
