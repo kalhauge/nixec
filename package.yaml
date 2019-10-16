@@ -31,6 +31,7 @@ dependencies:
   - hnix
   - vector
   - data-fix
+  - time
 
 library:
   source-dirs: src

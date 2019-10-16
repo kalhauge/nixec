@@ -86,11 +86,8 @@ data AppConfig = AppConfig
   } deriving (Show, Eq)
 
 
-parseAppConfig :: Parser (IO AppConfig)
+parseAppConfig :: Parser (L.Logger -> IO AppConfig)
 parseAppConfig = do
-  _appLogger <-
-    L.parseLogger
-
   _appCheck <-
     switch $
     long "check"
@@ -119,7 +116,7 @@ parseAppConfig = do
     <> hidden
     <> metavar "NIXECFOLDER"
 
-  pure $ do
+  pure $ \_appLogger -> do
 
     _appNixecfile <- checkFileType ioAppNixecfile >>= \case
       Just (File _) ->
@@ -149,7 +146,6 @@ appRulesFolder :: HasAppConfig env => Getter env FilePath
 appRulesFolder =
   appDatabase . to (</> "rules")
 
-
 instance L.HasLogger AppConfig where logger = appLogger
 instance HasNixConfig AppConfig where nixConfig = appNixConfig
 
@@ -157,18 +153,22 @@ type App = ReaderT AppConfig IO
 
 app :: IO ()
 app = do
-  (ioCfg, appCmd) <- execParser $
-    info (((,) <$> parseAppConfig <*> parseAppCommand)
+  putStrLn "Hello, World!"
+
+  (logger, ioCfg, appCmd) <- execParser $
+    info ((liftA3 (,,) L.parseLogger parseAppConfig parseAppCommand)
           <**> helper) (header "nixec")
 
-  runReaderT (runapp appCmd) =<< ioCfg
+  runReaderT (L.debug $ "Read command line arguments. ") logger
+  cfg <- ioCfg logger
+  runReaderT (L.debug $ "Read config: " <> L.displayShow cfg) cfg
+  runReaderT (runapp appCmd) cfg
 
 runapp :: AppCommand -> ReaderT AppConfig IO ()
 runapp appCmd = do
   nixecfile <- view appNixecfile
   cfg <- view appConfig
   L.info "Started Nixec."
-  L.debug $ "Config: " <> L.displayShow cfg
   L.info  $ "Found Nixecfile: " <> L.displayString nixecfile
 
   check <- view appCheck
@@ -201,7 +201,7 @@ runapp appCmd = do
 
   where
     calculateDatabase :: App ()
-    calculateDatabase = do
+    calculateDatabase = L.phase "compute database" $ do
       L.info "Calculating the database"
 
       folder <- view appNixecFolder
@@ -223,7 +223,7 @@ runapp appCmd = do
       when b (buildFileOrDie db file >> iterate db)
 
     readDatabase :: App (Either (Set.Set Input) [(RuleName, FilePath)])
-    readDatabase = do
+    readDatabase = L.phase "read database" $ do
       L.info "Reading database"
       rules <- view appRulesFolder
       f <- liftIO . tryIOError $ readDirTree return rules
