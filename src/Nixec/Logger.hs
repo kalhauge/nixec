@@ -54,10 +54,10 @@ import qualified Data.Text.Lazy.IO as Text
 import qualified Data.Text.Lazy as Text
 
 data Logger = Logger
-  { _loggerHandle   :: !Handle
-  , _loggerPriority :: !Priority
-  , _loggerLevel    :: ![Text.Text]
-  , _loggerMaxDepth :: !Int
+  { _loggerHandle   :: Handle
+  , _loggerPriority :: Priority
+  , _loggerLevel    :: [Text.Text]
+  , _loggerMaxDepth :: Int
   } deriving (Show, Eq)
 
 data Priority
@@ -83,18 +83,17 @@ loggerInDepth lg
 type Builder = Text.Builder
 type LoggerIO env m = (HasLogger env, MonadReader env m, MonadIO m)
 
-log :: (HasLogger env, MonadReader env m, MonadIO m)
+log :: LoggerIO env m
   => Priority
   -> Builder
   -> m ()
 log pri msg = do
   lg@Logger {..} <- view logger
-
   when (_loggerPriority <= pri && loggerInDepth lg /= GT ) $
     forM_ (Text.lines $ Text.toLazyText msg) $ \m -> do
       liftIO . Text.hPutStrLn _loggerHandle . Text.toLazyText
-        $ displayShow _loggerLevel
-        <> displayf "(%s7) " pri
+        $ displayf "[%7s] " pri
+        <> (lg^.loggerLevel._head.to (\a -> display a <> " | "))
         <> Text.fromLazyText m
 
 debug :: LoggerIO env m => Builder -> m ()
@@ -128,19 +127,19 @@ timedPhase ::
   -> m (Double, a)
 timedPhase phaseName ma = do
   lg@Logger {..} <- view logger
-  let runMa = local (over loggerLevel (phaseName:)) (timeIO ma)
   case loggerInDepth lg of
     LT -> do
-      info $ "Starting phase " <> display phaseName
-      (t, a) <- runMa
-      info $ "Done with phase " <> display phaseName <> displayf "%.3fs" t
-      return (t, a)
+      local (over loggerLevel (phaseName:)) $ do
+        info $ "Starting"
+        (t, a) <- timeIO ma
+        info $ "Done in " <> displayf " %.3fs" t
+        return (t, a)
     EQ -> do
-      (t, a) <- runMa
+      (t, a) <- local (over loggerLevel (phaseName:)) $ timeIO ma
       info $ "Ran phase " <> display phaseName <> displayf " (%.3fs)" t
       return (t, a)
     GT ->
-      runMa
+      timeIO ma
 
 {-# INLINE timedPhase #-}
 
@@ -169,7 +168,7 @@ instance Display Priority where display = displayShow
 instance Display Text.Text where display = displayText
 
 instance PrintfArg Priority where
-  formatArg = formatString . show
+  formatArg = formatArg . show
 
 -- | Option parse a logger
 parseLogger :: Parser Logger

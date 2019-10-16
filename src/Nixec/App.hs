@@ -106,7 +106,6 @@ parseAppConfig = do
   nixArgs <- many . strOption $
     short 'n'
     <> help "nix arguments"
-    <> value "./Nixecfile.hs"
     <> hidden
     <> metavar "ARG"
 
@@ -117,6 +116,7 @@ parseAppConfig = do
     <> metavar "NIXECFOLDER"
 
   pure $ \_appLogger -> do
+    print nixArgs
 
     _appNixecfile <- checkFileType ioAppNixecfile >>= \case
       Just (File _) ->
@@ -129,14 +129,11 @@ parseAppConfig = do
     let
       _appNixecFolder = fromMaybe (takeDirectory _appNixecfile </> "_nixec") mappNixecFolder
       _appDatabase = _appNixecFolder </> "database"
-
-      _appNixConfig =
-        let
-          _nixOverlays = [ _appNixecFolder </> "overlay.nix" ]
-          _nixVerbose = True
-          _nixBuildCommand = ("nix-build", nixArgs)
-        in NixConfig {..}
-
+      _appNixConfig = NixConfig
+        { _nixOverlays = [ _appNixecFolder </> "overlay.nix" ]
+        , _nixVerbose = True
+        , _nixBuildCommand = ("nix-build", nixArgs)
+        }
 
     return $ AppConfig {..}
 
@@ -153,8 +150,6 @@ type App = ReaderT AppConfig IO
 
 app :: IO ()
 app = do
-  putStrLn "Hello, World!"
-
   (logger, ioCfg, appCmd) <- execParser $
     info ((liftA3 (,,) L.parseLogger parseAppConfig parseAppCommand)
           <**> helper) (header "nixec")
@@ -167,7 +162,6 @@ app = do
 runapp :: AppCommand -> ReaderT AppConfig IO ()
 runapp appCmd = do
   nixecfile <- view appNixecfile
-  cfg <- view appConfig
   L.info "Started Nixec."
   L.info  $ "Found Nixecfile: " <> L.displayString nixecfile
 
@@ -207,20 +201,21 @@ runapp appCmd = do
       folder <- view appNixecFolder
       let db = folder </> "database"
       buildFileOrDie db (folder </> "default.nix")
-      iterate db
+      go db
+      where
+        go db = do
+          let _file = db </> "database.nix"
+          b <- liftIO $ doesFileExist _file
+          when b (buildFileOrDie db _file >> go db)
 
-    buildFileOrDie db file =
-      withArgs ["-o", db] $ do
-        a <- nixPackageScript' (nixCallFile file)
-        nixBuild a >>= \case
-          Just x -> return ()
-          Nothing ->
-            L.criticalFailure "Could not build database."
+        buildFileOrDie db _file =
+          withArgs ["-o", db] $ do
+            a <- nixPackageScript' (nixCallFile _file)
+            nixBuild a >>= \case
+              Just _ -> return ()
+              Nothing ->
+                L.criticalFailure "Could not build database."
 
-    iterate db = do
-      let file = db </> "database.nix"
-      b <- liftIO $ doesFileExist file
-      when b (buildFileOrDie db file >> iterate db)
 
     readDatabase :: App (Either (Set.Set Input) [(RuleName, FilePath)])
     readDatabase = L.phase "read database" $ do
