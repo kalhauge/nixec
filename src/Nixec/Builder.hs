@@ -42,16 +42,15 @@ import Control.Lens hiding ((<.>))
 import Options.Applicative hiding (Success)
 
 -- nixec
-import Nixec.Data
-import Nixec.Rule
-import qualified Nixec.Logger as L
-import Nixec.Nix
 import Nixec.Monad
+import Nixec.Rule
+import qualified Nixec.Nix
+import qualified Nixec.Logger as L
 
 data Config = Config
   { _configScope      :: !Scope
   , _configLogger     :: !L.Logger
-  , _configPathLookup :: !(Map.Map Input FilePath)
+  , _configPathLookup :: !(Map.Map InputFile FilePath)
   , _configTarget     :: !FilePath
   , _configMkRule     :: !Package
   }
@@ -85,7 +84,7 @@ newRuleName name = do
 -- | Return a Maybe an absolute FilePath.
 lookupDatabase ::
   (HasConfig env, MonadReader env m)
-  => Input
+  => InputFile
   -> m (Maybe FilePath)
 lookupDatabase i = do
   pl <- view configPathLookup
@@ -100,9 +99,7 @@ writeRule ::
   -> m ()
 writeRule fp rn r = do
   mkRule <- view configMkRule
-  liftIO
-    . writeFile (fp </> show (ruleNameToNix rn) <.> "nix")
-    . show $ ruleToNix mkRule rn r
+  Nixec.Nix.writeRule fp mkRule rn r
 
 parseConfig :: Parser (IO Config)
 parseConfig = do
@@ -169,15 +166,15 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
   L.info $ "Running paths" <> L.displayShow pths
 
   liftIO $ createDirectoryIfMissing True (trg </> "rules")
-  buildDatabase (trg </> "rules") (void . addRule "all" =<< nm) >>= \case
+  L.phase "database" $ buildDatabase (trg </> "rules") (void . addRule "all" =<< nm) >>= \case
     Right () -> L.info "Success"
-    Left msg -> do
-      L.info "Missing computations"
+    Left missing -> do
+      L.info $ "Missing " <> L.displayShow (Set.size missing) <> " inputs."
       liftIO . BL.writeFile (trg </> "missing.csv") $
-        Csv.encodeDefaultOrderedByName (toList msg)
+        Csv.encodeDefaultOrderedByName (toList missing)
 
       liftIO . writeFile (trg </> "database.nix")
-        $ show (nixMissing msg)
+        $ show (Nixec.Nix.databaseExpr missing)
 
   db <- view configPathLookup
   liftIO . BL.writeFile (trg </> "database.csv")
@@ -188,9 +185,9 @@ buildDatabase ::
   (HasConfig env, L.HasLogger env, MonadReader env m, MonadIO m)
   => FilePath
   -> Nixec a
-  -> m (Either (Set.Set Input) a)
+  -> m (Either (Set.Set InputFile) a)
 buildDatabase trg = runExceptT . runNixec run where
-  run :: NixecF (ExceptT (Set.Set Input) m b) -> ExceptT (Set.Set Input) m b
+  run :: NixecF (ExceptT (Set.Set InputFile) m b) -> ExceptT (Set.Set InputFile) m b
   run = \case
     AddRule name r x -> do
       rn <- newRuleName name
@@ -204,7 +201,7 @@ buildDatabase trg = runExceptT . runNixec run where
       L.debug $ "Exit scope: " <> L.displayShow name
       run (AddRule name r x)
 
-    Inspect i io na -> do
+    InspectInput i io na -> do
       L.debug $ "Inspecting: " <> L.displayShow i
       lookupDatabase i >>= \case
         Just output -> do

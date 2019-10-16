@@ -150,6 +150,9 @@ pkg = PackageInput
 class HasInputFile a where
   toInputFile :: a -> InputFile
 
+instance HasInputFile InputFile where
+  toInputFile = id
+
 instance HasInputFile Input where
   toInputFile = flip InputFile ""
 
@@ -162,8 +165,8 @@ instance HasInputFile Package where
 infixl 5 <./>
 (<./>) :: HasInputFile i => i -> FilePath -> InputFile
 a <./> fp =
-  let InputFile a f = toInputFile a
-  in InputFile a (f </> fp)
+  let InputFile b f = toInputFile a
+  in InputFile b (f </> fp)
 
 data Status
   = Success
@@ -261,18 +264,17 @@ copy recursive cm fp =
   cmd "cp" $ do
     args .= [ "-r" | recursive ] ++ [ cm , Output fp ]
 
-link :: FilePath -> Input -> RuleM CommandArgument
+link :: HasInputFile i => FilePath -> i -> RuleM CommandArgument
 link fp i = do
   needs [fp ~> i]
   return $ Input fp
 
-links :: Traversable f => f (FilePath, Input) -> RuleM (f CommandArgument)
+links :: Traversable f => f (FilePath, InputFile) -> RuleM (f CommandArgument)
 links = mapM (uncurry link)
 
 asLinks :: Traversable f => f RuleName -> RuleM (f CommandArgument)
 asLinks =
-  links . fmap (\c -> (toFilePath (topRuleName c), RuleInput c))
-
+  links . fmap (\c -> (toFilePath (topRuleName c), toInputFile c))
 
 -- ** Intances
 

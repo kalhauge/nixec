@@ -1,4 +1,5 @@
 :set -fwarn-unused-binds -fwarn-unused-imports -fWall
 :set -isrc
 :set -iapp
+:load Nixec
 :load Main

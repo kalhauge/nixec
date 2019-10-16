@@ -42,7 +42,6 @@ import System.FilePath
 import qualified Data.ByteString.Lazy as BL
 
 -- Nixec
-import Nixec.Data
 import Nixec.Command
 import Nixec.Rule hiding (rule)
 
@@ -54,16 +53,21 @@ data NixecF x
   = AddRule Name Rule (RuleName -> x)
   | Scope Name (Nixec Rule) (RuleName -> x)
   | forall a b. Seperate (Nixec a) (Nixec b) ((a, b) -> x)
-  | forall a. Inspect Input (FilePath -> IO a) (a -> x)
+  | forall a. InspectInput InputFile (FilePath -> IO a) (a -> x)
 
 deriving instance (Functor NixecF)
 
 makeFree_ ''NixecF
 
-addRule    :: MonadFree NixecF m => Name -> Rule -> m RuleName
-scope      :: MonadFree NixecF m => Name -> Nixec Rule -> m RuleName
-inspect    :: MonadFree NixecF m => Input -> (FilePath -> IO a) -> m a
-seperate   :: MonadFree NixecF m => Nixec a -> Nixec b -> m (a, b)
+addRule        :: MonadFree NixecF m => Name -> Rule -> m RuleName
+scope          :: MonadFree NixecF m => Name -> Nixec Rule -> m RuleName
+inspectInput   :: MonadFree NixecF m => InputFile -> (FilePath -> IO a) -> m a
+seperate       :: MonadFree NixecF m => Nixec a -> Nixec b -> m (a, b)
+
+
+inspect    :: (MonadFree NixecF m, HasInputFile i) => i -> (FilePath -> IO a) -> m a
+inspect i = inspectInput (toInputFile i)
+
 
 instance Applicative Nixec where
   pure a = Nixec (return a)
@@ -94,7 +98,7 @@ checkSuccess rn output = liftIO $ do
 
 onSuccess :: RuleName -> Nixec a -> Nixec (Maybe a)
 onSuccess rn n = do
-  b <- inspect (RuleInput rn) $ checkSuccess rn
+  b <- inspect (toInputFile rn) $ checkSuccess rn
   if b
   then Just <$> n
   else return Nothing
@@ -148,11 +152,11 @@ collectWith :: Traversable f
 collectWith rulem scps =
   scps <&> \mn -> emptyRule &~ (rulem =<< asLinks mn)
 
-listFiles :: Input -> (FilePath -> Maybe b) -> Nixec [(b, Input)]
+listFiles :: HasInputFile a => a -> (FilePath -> Maybe b) -> Nixec [(b, InputFile)]
 listFiles i fm =
   fmap catMaybes . inspect i $ \fp -> do
     content <- listDirectory fp
-    return $ map (\c -> (,InInput i c) <$> fm c) content
+    return $ map (\c -> (,i <./> c) <$> fm c) content
 
   -- case cfg^.configAction of
   --   ListAction -> do

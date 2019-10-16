@@ -4,8 +4,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Nixec
-  ( module Nixec.Data
-  , module Nixec.Builder
+  ( module Nixec.Builder
   , module Nixec.Rule
   , module Nixec.Command
   , module Nixec.Monad
@@ -23,7 +22,6 @@ import Control.Lens
 import qualified Data.Text as Text
 
 -- nixec
-import Nixec.Data
 import Nixec.Rule hiding (rule)
 import Nixec.Command
 import Nixec.Monad

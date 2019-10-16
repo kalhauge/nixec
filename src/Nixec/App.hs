@@ -131,7 +131,6 @@ parseAppConfig = do
       _appDatabase = _appNixecFolder </> "database"
       _appNixConfig = NixConfig
         { _nixOverlays = [ _appNixecFolder </> "overlay.nix" ]
-        , _nixVerbose = True
         , _nixBuildCommand = ("nix-build", nixArgs)
         }
 

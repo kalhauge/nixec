@@ -20,21 +20,24 @@ module Nixec.Nix
   , nixBuild
   , nixBuildWithPkgsAndOverlays
   , nixBuildRules
+
+  -- * Write rule
+  , writeRule
  
   -- * Expressions
   , databaseExpr
+  , ruleExpr
 
   , withPkgsAndOverlaysExpr
   , callFileExpr
   , callPackageExpr
 
+  -- * Handle RuleName to Files
+  , ruleNameToFilePath
   ) where
 
 -- lens
 import Control.Lens hiding ((<.>))
-
--- prettyprinter
-import Data.Text.Prettyprint.Doc
 
 -- containers
 import qualified Data.Set as Set
@@ -76,13 +79,11 @@ import Control.Monad.Reader
 
 -- nixec
 import Nixec.Rule
-import Nixec.Command
 import qualified Nixec.Logger as L
 
 
 data NixConfig = NixConfig
   { _nixOverlays     :: [ FilePath ]
-  , _nixVerbose      :: Bool
   , _nixBuildCommand :: (String, [ String ])
   } deriving (Show, Eq)
 
@@ -131,6 +132,7 @@ nixBuildWithPkgsAndOverlays ::
 nixBuildWithPkgsAndOverlays a =
   nixBuild =<< withPkgsAndOverlaysExpr a
 
+
 -- | Run the expression in a environment where all packages and overlays have
 -- been loaded
 withPkgsAndOverlaysExpr ::
@@ -164,93 +166,30 @@ callFileExpr = callPackageExpr . mkPath False
 callPackageExpr :: NExpr -> [ (Text.Text, NExpr) ] -> NExpr
 callPackageExpr e b = mkSym "callPackage" @@ e @@ attrsE b
 
-ruleNameToFilePath :: RuleName -> FilePath -> FilePath
-ruleNameToFilePath r fp =
-  fp </> ruleNameToString r <.> "rule" <.> "nix"
+-- | Write a rule to a folder
+writeRule :: MonadIO m => FilePath -> Package -> RuleName -> Rule -> m ()
+writeRule folder mkRule rn r = liftIO $ do
+  let fn = ruleNameToFilePath rn folder
+  createDirectoryIfMissing True (takeDirectory fn)
+  writeFile fn . show . prettyNix $ ruleExpr mkRule rn r
 
-class AsExpr a where
-  toExpr :: a -> NExpr
+ruleExpr :: Package -> RuleName -> Rule -> NExpr
+ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
 
-instance AsExpr NExpr where
-  toExpr = id
+  header = flip mkParamset False . map (,Nothing) . concat $
+    [ [ "stdenv"
+      , "callPackage"
+      , "time"
+      ]
+    , [ packageToText $ superPackage p
+      | p <- mkRule : toListOf (folding ruleInputFiles.inputFileInput._PackageInput) r
+      ]
+    ]
 
-instance AsExpr a => AsExpr [a] where
-  toExpr a = mkList (map toExpr a)
+  body = attrsE
+    [ ("name", mkStr (topRuleName rn))
+    ]
 
-instance AsExpr Input where
-  toExpr = \case
-    PackageInput t -> Nix.mkSym (packageToText t)
-    RuleInput r    -> callFileExpr (ruleNameToFilePath r "rules") []
-    FileInput t    -> Nix.mkPath False t
-
--- nixPackageScript' ::
---   HasNix env m
---   => Nix.NExpr
---   -> m String
--- nixPackageScript' pkg' = do
---   fps <- view nixOverlays
-
---   overlays <- fmap concat . forM fps $ \fp -> do
---    liftIO (doesFileExist fp) <&> \b ->
---      [ Nix.mkSym "import" Nix.@@ Nix.mkPath False fp | b ]
-
---   return . show . Nix.prettyNix $
---     Nix.mkWith
---       ((Nix.mkSym "import" Nix.@@ (Nix.mkEnvPath "nixpkgs") Nix.@@ Nix.attrsE []) Nix.@. "appendOverlays"
---         Nix.@@ Nix.mkList overlays)
---       pkg'
-
--- ruleNameToNix :: RuleName -> Doc m
--- ruleNameToNix =
---   foldr1 (\a b -> b <> "-" <> a) . fmap pretty . unRuleName
-
--- ruleNameToCallPackage :: RuleName -> Doc m
--- ruleNameToCallPackage rn =
---   "callPackage" <+> "./" <> ruleNameToNix rn <> ".nix" <+> "{}"
-
--- nixToShell :: Doc m -> Doc m
--- nixToShell = enclose "${" "}"
-
--- inputToShell :: InputFile -> Doc m
--- inputToShell = \case
---   InputFile a fp ->
---     case a of
---       RuleInput r -> nixToShell (ruleNameToCallPackage r)
---       PackageInput r -> nixToShell (pretty r)
---       FileInput r -> nixToShell ("../../" <> pretty r)
---     <> (if null fp then mempty else "/" <> pretty fp )
-
--- attrset :: [(Doc m, Doc m)] -> Doc m
--- attrset =
---   braces
---   . enclose line line
---   . indent 2
---   . vsep
---   . map (\(n, m) -> n <+> "=" <+> m <> ";")
-
--- letlist :: [(Doc m, Doc m)] -> Doc m -> Doc m
--- letlist lst inexp =
---   "let"
---   <+> ( enclose softline softline
---        . indent 2
---        . vsep
---        . map (\(n, m) -> n <+> "=" <+> m <> ";")
---        $ lst
---      )
---   <+> "in"
---   <+> inexp
-
--- ruleToNix ::
---   Package -> RuleName -> Rule -> Doc e
--- ruleToNix mkRule rn r =
---   header <> ":" <> line <> ruleToNixDrv mkRule rn r
---   where
---   header = encloseSep "{ " " }" ", " $
---     ["stdenv", "callPackage", "time"]
---     ++
---     [ pretty (superPackage p)
---     | p <- mkRule:toListOf (folding ruleInputFiles.inputFileInput._PackageInput) r
---     ]
 
 -- ruleToNixDrv ::
 --   Package -> RuleName -> Rule -> Doc e
@@ -358,9 +297,86 @@ inputFileToNixString (InputFile i fp) =
   [ Nix.Antiquoted (toExpr i) ]
   ++ [ Nix.Plain (Text.pack $ "/" <> fp) | not $ null fp ]
 
+-- nixstring :: Doc m -> Doc m
+-- nixstring = enclose
+--   (flatAlt "\"" ("''" <> hardline))
+--   (flatAlt "\"" (hardline <> "''"))
+
+-- nixPackageScript' ::
+--   HasNix env m
+--   => Nix.NExpr
+--   -> m String
+-- nixPackageScript' pkg' = do
+--   fps <- view nixOverlays
+
+--   overlays <- fmap concat . forM fps $ \fp -> do
+--    liftIO (doesFileExist fp) <&> \b ->
+--      [ Nix.mkSym "import" Nix.@@ Nix.mkPath False fp | b ]
+
+--   return . show . Nix.prettyNix $
+--     Nix.mkWith
+--       ((Nix.mkSym "import" Nix.@@ (Nix.mkEnvPath "nixpkgs") Nix.@@ Nix.attrsE []) Nix.@. "appendOverlays"
+--         Nix.@@ Nix.mkList overlays)
+--       pkg'
+
+-- ruleNameToNix :: RuleName -> Doc m
+-- ruleNameToNix =
+--   foldr1 (\a b -> b <> "-" <> a) . fmap pretty . unRuleName
+
+-- ruleNameToCallPackage :: RuleName -> Doc m
+-- ruleNameToCallPackage rn =
+--   "callPackage" <+> "./" <> ruleNameToNix rn <> ".nix" <+> "{}"
+
+-- nixToShell :: Doc m -> Doc m
+-- nixToShell = enclose "${" "}"
+
+-- inputToShell :: InputFile -> Doc m
+-- inputToShell = \case
+--   InputFile a fp ->
+--     case a of
+--       RuleInput r -> nixToShell (ruleNameToCallPackage r)
+--       PackageInput r -> nixToShell (pretty r)
+--       FileInput r -> nixToShell ("../../" <> pretty r)
+--     <> (if null fp then mempty else "/" <> pretty fp )
+
+-- attrset :: [(Doc m, Doc m)] -> Doc m
+-- attrset =
+--   braces
+--   . enclose line line
+--   . indent 2
+--   . vsep
+--   . map (\(n, m) -> n <+> "=" <+> m <> ";")
+
+-- letlist :: [(Doc m, Doc m)] -> Doc m -> Doc m
+-- letlist lst inexp =
+--   "let"
+--   <+> ( enclose softline softline
+--        . indent 2
+--        . vsep
+--        . map (\(n, m) -> n <+> "=" <+> m <> ";")
+--        $ lst
+--      )
+--   <+> "in"
+--   <+> inexp
 
 
-nixstring :: Doc m -> Doc m
-nixstring = enclose
-  (flatAlt "\"" ("''" <> hardline))
-  (flatAlt "\"" (hardline <> "''"))
+ruleNameToFilePath :: RuleName -> FilePath -> FilePath
+ruleNameToFilePath r fp =
+  fp </> ruleNameToString r <.> "rule" <.> "nix"
+
+class AsExpr a where
+  toExpr :: a -> NExpr
+
+instance AsExpr NExpr where
+  toExpr = id
+
+instance AsExpr a => AsExpr [a] where
+  toExpr a = mkList (map toExpr a)
+
+instance AsExpr Input where
+  toExpr = \case
+    PackageInput t -> toExpr t
+    RuleInput r    -> callFileExpr (ruleNameToFilePath r "rules") []
+    FileInput t    -> Nix.mkPath False t
+
+instance AsExpr Package where toExpr = Nix.mkSym . packageToText
