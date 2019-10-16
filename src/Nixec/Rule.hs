@@ -68,14 +68,11 @@ ruleNameFromText :: Text.Text -> RuleName
 ruleNameFromText =
   RuleName
   . fromJust . nonEmpty
-  . reverse . Text.split (== '-')
+  . reverse . Text.split (== '/')
 
 ruleNameFromString :: String -> RuleName
 ruleNameFromString =
-  RuleName
-  . fromJust . nonEmpty
-  . reverse . Text.split (== '-')
-  . Text.pack
+  ruleNameFromText . Text.pack
 
 -- | Check is a RuleName is in Scope
 ruleNameInScope :: RuleName -> Scope -> Bool
@@ -339,6 +336,19 @@ instance Csv.ToNamedRecord InputFile where
       ]
 
 newtype PathLookup = PathLookup { unPathLookup :: (InputFile, FilePath) }
+
+instance L.Display InputFile where
+  display (InputFile i fp) =
+    if null fp then L.display i else "$(" <> L.display i <> ")/" <> L.displayString fp
+
+instance L.Display Input where
+  display = \case
+    FileInput i -> "file:" <> L.displayString i
+    PackageInput i -> "package:" <> L.display i
+    RuleInput i -> "rule:" <> L.display i
+
+instance L.Display PathLookup where
+  display (PathLookup (inf, fp)) = L.display inf <> " -> " <> L.displayString fp
 
 instance Csv.FromNamedRecord PathLookup where
   parseNamedRecord m = do

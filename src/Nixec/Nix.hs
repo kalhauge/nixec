@@ -23,6 +23,7 @@ module Nixec.Nix
 
   -- * Write rule
   , writeRule
+  , writeDatabase
  
   -- * Expressions
   , databaseExpr
@@ -57,6 +58,9 @@ import qualified Data.Csv as Csv
 -- directory
 import System.Directory
 
+-- prettyprinter
+import Data.Text.Prettyprint.Doc
+
 -- bytestring
 import qualified Data.ByteString.Lazy.Char8 as BL
 
@@ -79,6 +83,7 @@ import Control.Monad.Reader
 
 -- nixec
 import Nixec.Rule
+import Nixec.Command
 import qualified Nixec.Logger as L
 
 
@@ -173,9 +178,13 @@ writeRule folder mkRule rn r = liftIO $ do
   createDirectoryIfMissing True (takeDirectory fn)
   writeFile fn . show . prettyNix $ ruleExpr mkRule rn r
 
+-- | Write a rule to a folder
+writeDatabase :: MonadIO m => FilePath -> Set.Set InputFile -> m ()
+writeDatabase fn missing = liftIO $ do
+  writeFile fn . show . prettyNix $ databaseExpr missing
+
 ruleExpr :: Package -> RuleName -> Rule -> NExpr
 ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
-
   header = flip mkParamset False . map (,Nothing) . concat $
     [ [ "stdenv"
       , "callPackage"
@@ -188,64 +197,36 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
 
   body = attrsE
     [ ("name", mkStr (topRuleName rn))
+    , ("buildInputs", toExpr [ p | OnPath p <- r ^. ruleRequires])
+    , ("command", mkSym "builtins.toFile"
+        @@ mkStr "run.sh"
+        @@ mkIndentedStr 2 (Text.pack . show $ renderCommands (r ^. ruleCommands))
+      )
+    , ("unpackPhase", Fix . Nix.NStr . Nix.Indented 2 . List.intercalate [Plain "\n"] $
+        [ [ Plain "# This is a comment to make sure that the output is put on multiple lines" ]
+        , List.intercalate [Plain "\n"]
+          [ [ Plain "ln -s "]
+            ++ inputFileToNixString i
+            ++ [ Plain (Text.pack $ ' ': fp) ]
+          | LinkTo fp i <- r ^. ruleRequires
+          ]
+        , [ Plain "ln -s $command run.sh" ]
+        ]
+      )
+    , ( "time", mkSym "time" )
+    , ( "buildPhase",
+        mkIndentedStr 2 . Text.pack . show . vcat $
+        [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
+        , splitcommand
+          [ "$time/bin/time", "--format", dquotes ("$name,%e,%U,%S,%M,%x")
+          , "--append", "--output", "times.csv"
+          , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
+          , "||:"]
+        , "sed -i -e '/Command/d' 'times.csv'"
+        ]
+      )
+    , ( "installPhase", mkStr "mkdir -p $out; mv * $out")
     ]
-
-
--- ruleToNixDrv ::
---   Package -> RuleName -> Rule -> Doc e
--- ruleToNixDrv mkRule rn r =
---   pretty mkRule <+>
---     attrset
---     [ ( "name"
---       , nixstring (ruleNameToNix rn)
---       )
---     , ( "buildInputs"
---       , encloseSep "[" "]" " "
---         [ pretty p
---         | OnPath p <- r ^. ruleRequires
---         ]
---       )
---     , ( "command"
---       , "builtins.toFile" <+> dquotes "run.sh" <+>
---         script (renderCommands (r ^. ruleCommands))
---       )
---     , ( "unpackPhase"
---       , ( script . vcat . concat $
---           [ [ "ln -s" <+> inputToShell i <+> squotes (pretty fp)
---             | LinkTo fp i <- r ^. ruleRequires
---             ]
---           , [ "ln -s $command run.sh"
---             ]
---           ]
---         )
---       )
---     , ( "buildPhase"
---       , script . vcat . concat $
---         [ [ "export " <> pretty n <> "=" <> dquotes (inputToShell i)
---           | Env n i <- r ^. ruleRequires
---           ]
---         -- , [ "timeout" <+> pretty timelimit ]
---         , [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
---           , splitcommand
---             [ "${time}/bin/time", "--format"
---             , dquotes ((pretty rn) <> ",%e,%U,%S,%M,%x")
---             , "--append", "--output", "times.csv"
---             , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
---             , "||:"]
---           , "sed -i -e '/Command/d' 'times.csv'"
---           ]
---         ]
---       )
---     , ( "installPhase"
---       , script . vcat $
---         [ "mkdir -p $out"
---         , "mv * $out"
---         ]
---       )
---     ]
---   where
---     script :: Doc m -> Doc m
---     script a = vcat $ [ "''", indent 2 a , "''"]
 
 databaseExpr :: Set.Set InputFile -> NExpr
 databaseExpr missing =
@@ -284,7 +265,7 @@ databaseExpr missing =
       [ Nix.Plain "mkdir $out\n"
       , Nix.Plain "echo \"$db\" > $out/extra-paths.csv\n"
       , Nix.Plain "ln -s " , Nix.Antiquoted (Nix.mkRelPath "./."), Nix.Plain " $out/previous\n"
-      , Nix.Plain "nixec-builder --db $out/previous/database.csv --db $out/extra-paths.csv $out"
+      , Nix.Plain "nixec-builder -v --db $out/previous/database.csv --db $out/extra-paths.csv $out"
       ]
     )
   ]
@@ -296,69 +277,6 @@ inputFileToNixString :: InputFile -> [Nix.Antiquoted Text.Text Nix.NExpr]
 inputFileToNixString (InputFile i fp) =
   [ Nix.Antiquoted (toExpr i) ]
   ++ [ Nix.Plain (Text.pack $ "/" <> fp) | not $ null fp ]
-
--- nixstring :: Doc m -> Doc m
--- nixstring = enclose
---   (flatAlt "\"" ("''" <> hardline))
---   (flatAlt "\"" (hardline <> "''"))
-
--- nixPackageScript' ::
---   HasNix env m
---   => Nix.NExpr
---   -> m String
--- nixPackageScript' pkg' = do
---   fps <- view nixOverlays
-
---   overlays <- fmap concat . forM fps $ \fp -> do
---    liftIO (doesFileExist fp) <&> \b ->
---      [ Nix.mkSym "import" Nix.@@ Nix.mkPath False fp | b ]
-
---   return . show . Nix.prettyNix $
---     Nix.mkWith
---       ((Nix.mkSym "import" Nix.@@ (Nix.mkEnvPath "nixpkgs") Nix.@@ Nix.attrsE []) Nix.@. "appendOverlays"
---         Nix.@@ Nix.mkList overlays)
---       pkg'
-
--- ruleNameToNix :: RuleName -> Doc m
--- ruleNameToNix =
---   foldr1 (\a b -> b <> "-" <> a) . fmap pretty . unRuleName
-
--- ruleNameToCallPackage :: RuleName -> Doc m
--- ruleNameToCallPackage rn =
---   "callPackage" <+> "./" <> ruleNameToNix rn <> ".nix" <+> "{}"
-
--- nixToShell :: Doc m -> Doc m
--- nixToShell = enclose "${" "}"
-
--- inputToShell :: InputFile -> Doc m
--- inputToShell = \case
---   InputFile a fp ->
---     case a of
---       RuleInput r -> nixToShell (ruleNameToCallPackage r)
---       PackageInput r -> nixToShell (pretty r)
---       FileInput r -> nixToShell ("../../" <> pretty r)
---     <> (if null fp then mempty else "/" <> pretty fp )
-
--- attrset :: [(Doc m, Doc m)] -> Doc m
--- attrset =
---   braces
---   . enclose line line
---   . indent 2
---   . vsep
---   . map (\(n, m) -> n <+> "=" <+> m <> ";")
-
--- letlist :: [(Doc m, Doc m)] -> Doc m -> Doc m
--- letlist lst inexp =
---   "let"
---   <+> ( enclose softline softline
---        . indent 2
---        . vsep
---        . map (\(n, m) -> n <+> "=" <+> m <> ";")
---        $ lst
---      )
---   <+> "in"
---   <+> inexp
-
 
 ruleNameToFilePath :: RuleName -> FilePath -> FilePath
 ruleNameToFilePath r fp =

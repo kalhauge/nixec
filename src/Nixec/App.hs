@@ -116,8 +116,6 @@ parseAppConfig = do
     <> metavar "NIXECFOLDER"
 
   pure $ \_appLogger -> do
-    print nixArgs
-
     _appNixecfile <- checkFileType ioAppNixecfile >>= \case
       Just (File _) ->
         makeAbsolute ioAppNixecfile
@@ -242,8 +240,9 @@ runapp appCmd = do
                     <> L.displayShow m
             Nothing -> do
               return . Right $
-                [ (ruleNameFromString n, rules </> key)
-                | (key :: String , _ ) <- itoList (getInternalFileMap db)
-                , let (n, ext) = splitExtensions key
-                , ext == ".nix"
+                [ (ruleNameFromString n, rules </> p)
+                | (key, _ ) <- itoList db
+                , let p = fileKeyToPath $ fromForestFileKey key
+                , let (n, ext) = splitExtensions p
+                , ext == ".rule.nix"
                 ]

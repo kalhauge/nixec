@@ -28,6 +28,7 @@ module Nixec.Logger
   , displayString
   , displayText
   , displayLazyText
+  , displayList
 
   -- * Utils
   , criticalFailure
@@ -125,7 +126,7 @@ log pri msg = do
   when (_loggerPriority <= pri && loggerInDepth lg /= GT ) $
     forM_ (LazyText.lines $ LazyText.toLazyText msg) $ \m -> do
       liftIO . LazyText.hPutStrLn _loggerHandle . LazyText.toLazyText
-        $ displayf "[%7s] " pri
+        $ displayf "[%8s] " pri
         <> (lg^.loggerLevel.to List.length.to (\a -> fold ["| " | _ <- [1..a]]))
         <> (lg^.loggerLevel._head.to (\a -> display a <> " | "))
         <> LazyText.fromLazyText m
@@ -200,9 +201,15 @@ displayLazyText = LazyText.fromLazyText
 displayText :: Text.Text -> Builder
 displayText = LazyText.fromText
 
-instance Display Priority where display = displayShow
+displayList :: (Display a, Foldable f) => f a -> Builder
+displayList fa =
+  foldMap (\a -> "  - " <> display a <> "\n") fa
+
+instance Display LazyText.Builder where display = id
 instance Display Text.Text where display = displayText
 instance Display LazyText.Text where display = displayLazyText
+
+instance Display Priority where display = displayShow
 
 instance PrintfArg Priority where
   formatArg = formatArg . show
@@ -289,7 +296,7 @@ perLine (consumer, i) = do
             consumer b Nothing
       | otherwise = do
           left <- readIORef ref
-          let line : restOfLines = BSC.split '\n' bs
+          let (line, restOfLines) = BSC.split '\n' bs ^?! _Cons
           (a', _left) <- foldM consumeLines (a, left `BS.append` line) restOfLines
           writeIORef ref _left
           return a'

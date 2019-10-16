@@ -163,7 +163,8 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
   trg <- view configTarget
 
   pths <- view configPathLookup
-  L.info $ "Running paths" <> L.displayShow pths
+  L.info $ "Running paths:"
+  L.info $ L.displayList (map PathLookup . Map.toList $ pths)
 
   liftIO $ createDirectoryIfMissing True (trg </> "rules")
   L.phase "database" $ buildDatabase (trg </> "rules") (void . addRule "all" =<< nm) >>= \case
@@ -173,8 +174,7 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
       liftIO . BL.writeFile (trg </> "missing.csv") $
         Csv.encodeDefaultOrderedByName (toList missing)
 
-      liftIO . writeFile (trg </> "database.nix")
-        $ show (Nixec.Nix.databaseExpr missing)
+      Nixec.Nix.writeDatabase (trg </> "database.nix") missing
 
   db <- view configPathLookup
   liftIO . BL.writeFile (trg </> "database.csv")
