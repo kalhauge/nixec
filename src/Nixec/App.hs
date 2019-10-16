@@ -106,6 +106,13 @@ parseAppConfig = do
     <> metavar "NIXECFILE"
     <> showDefault
 
+  nixArgs <- many . strOption $
+    short 'n'
+    <> help "nix arguments"
+    <> value "./Nixecfile.hs"
+    <> hidden
+    <> metavar "ARG"
+
   mappNixecFolder <- optional . strOption $
     long "nixec-folder"
     <> help "the path to the Nixec database. Normally NIXECFILE/../_nixec"
@@ -130,7 +137,7 @@ parseAppConfig = do
         let
           _nixOverlays = [ _appNixecFolder </> "overlay.nix" ]
           _nixVerbose = True
-          _nixBuildCommand = ("nix-build", [])
+          _nixBuildCommand = ("nix-build", nixArgs)
         in NixConfig {..}
 
 
