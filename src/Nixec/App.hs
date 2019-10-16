@@ -198,30 +198,22 @@ runapp appCmd = do
       L.info "Calculating the database"
 
       folder <- view appNixecFolder
-
       let db = folder </> "database"
-
-      -- First we build the database
-      withArgs ["-o", db] $ do
-        a <- nixPackageScript' (nixCallFile (folder </> "default.nix"))
-        void $ nixBuild a
-
+      buildFileOrDie db (folder </> "default.nix")
       iterate db
 
+    buildFileOrDie db file =
+      withArgs ["-o", db] $ do
+        a <- nixPackageScript' (nixCallFile file)
+        nixBuild a >>= \case
+          Just x -> return ()
+          Nothing ->
+            L.criticalFailure "Could not build database."
 
     iterate db = do
       let file = db </> "database.nix"
       b <- liftIO $ doesFileExist file
-      if b
-        then do
-          withArgs ["-o", db] $ do
-            a <- nixPackageScript' (nixCallFile file)
-            nixBuild a >>= \case
-              Just x -> iterate db
-              Nothing ->
-                L.criticalFailure "Could not build database."
-        else
-          return ()
+      when b (buildFileOrDie db file >> iterate db)
 
     readDatabase :: App (Either (Set.Set Input) [(RuleName, FilePath)])
     readDatabase = do
