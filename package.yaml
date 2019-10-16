@@ -23,7 +23,7 @@ dependencies:
   - free
   - bytestring
   - cassava
-  - process
+  - typed-process
   - optparse-applicative
   - containers
   - transformers
@@ -32,6 +32,8 @@ dependencies:
   - vector
   - data-fix
   - time
+  - stm
+  - async
 
 library:
   source-dirs: src

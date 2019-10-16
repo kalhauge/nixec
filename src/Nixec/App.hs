@@ -49,8 +49,8 @@ import Options.Applicative hiding (Success)
 import Control.Monad.Reader
 
 -- Nixec
-import Nixec.Data
 import Nixec.Nix
+import Nixec.Rule
 import qualified Nixec.Logger as L
 
 data AppCommand
@@ -181,11 +181,11 @@ runapp appCmd = do
       L.criticalFailure "Could not create database."
 
   case appCmd of
-    ListRules -> do
+    ListRules -> L.phase "list" $ do
       forM_ db $ \(rn, _) -> liftIO $ do
         putStrLn $ ruleNameToString rn
 
-    RunRules rns -> do
+    RunRules rns -> L.phase "run" $ do
       rules <- view appRulesFolder
       nixBuildRules rules rns >>= \case
         Just _ -> L.info "success"
@@ -195,7 +195,7 @@ runapp appCmd = do
 
   where
     calculateDatabase :: App ()
-    calculateDatabase = L.phase "compute database" $ do
+    calculateDatabase = L.phase "compute db" $ do
       L.info "Calculating the database"
 
       folder <- view appNixecFolder
@@ -210,15 +210,14 @@ runapp appCmd = do
 
         buildFileOrDie db _file =
           withArgs ["-o", db] $ do
-            a <- nixPackageScript' (nixCallFile _file)
-            nixBuild a >>= \case
+            nixBuildWithPkgsAndOverlays (callFileExpr _file []) >>= \case
               Just _ -> return ()
               Nothing ->
                 L.criticalFailure "Could not build database."
 
 
-    readDatabase :: App (Either (Set.Set Input) [(RuleName, FilePath)])
-    readDatabase = L.phase "read database" $ do
+    readDatabase :: App (Either (Set.Set InputFile) [(RuleName, FilePath)])
+    readDatabase = L.phase "read db" $ do
       L.info "Reading database"
       rules <- view appRulesFolder
       f <- liftIO . tryIOError $ readDirTree return rules
