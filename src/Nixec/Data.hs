@@ -118,7 +118,6 @@ instance IsString Package where
 instance Pretty Package where
   pretty = pretty . packageToText
 
-
 -- | We have different kinds of inputs
 data Input
   = RuleInput RuleName

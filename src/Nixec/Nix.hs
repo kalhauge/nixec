@@ -297,7 +297,6 @@ nixMissing missing = Nix.prettyNix $
   
     mkIStr = Fix . Nix.NStr . Nix.Indented 2
 
-
 nixBuildRules :: (L.HasLogger env, HasNix env m)
   => FilePath
   -> [RuleName]
@@ -306,7 +305,6 @@ nixBuildRules folder rules = do
   scrpt <- nixPackageScript'
         $ Nix.mkList [ nixCallFile (folder </> ruleNameToString t <.> "nix") | t <- rules ]
   nixBuild scrpt
-
 
 nixCallFile :: FilePath -> Nix.NExpr
 nixCallFile fp =

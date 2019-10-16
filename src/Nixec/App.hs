@@ -64,7 +64,7 @@ parseAppCommand =
   [ command "list" $
     info
     (pure ListRules)
-    (progDesc "list the possible targets")
+    (progDesc "list the possible targets.")
   , command "run" $
      info
      ( fmap RunRules
@@ -73,11 +73,12 @@ parseAppCommand =
        $ metavar "RULE .."
        <> help "the rules to run."
      )
-     (progDesc "list the possible targets")
+     (progDesc "run a list of rules.")
   ]
 
 data AppConfig = AppConfig
   { _appLogger         :: !L.Logger
+  , _appCheck          :: !Bool
   , _appNixecfile      :: !FilePath
   , _appNixecFolder    :: !FilePath
   , _appDatabase       :: !FilePath
@@ -89,6 +90,12 @@ parseAppConfig :: Parser (IO AppConfig)
 parseAppConfig = do
   _appLogger <-
     L.parseLogger
+
+  _appCheck <-
+    switch $
+    long "check"
+    <> help "recalculate the database."
+    <> hidden
 
   ioAppNixecfile <- strOption $
     short 'f'
@@ -157,6 +164,9 @@ runapp appCmd = do
   L.debug $ "Config: " <> L.displayShow cfg
   L.info  $ "Found Nixecfile: " <> L.displayString nixecfile
 
+  check <- view appCheck
+  when check $ calculateDatabase
+ 
   db <- readDatabase >>= \case
     Right db -> do
       L.info "Database succesfully read."
