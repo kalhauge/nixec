@@ -44,6 +44,7 @@ import System.Exit
 -- text
 import qualified Data.Text.Lazy.Builder as Text
 import qualified Data.Text.Lazy.IO as Text
+import qualified Data.Text.Lazy as Text
 
 data Logger = Logger
   { _loggerHandle :: Handle
@@ -72,8 +73,10 @@ log pri msg = do
   Logger {..} <- view logger
 
   when (_loggerLevel <= pri) $
-    liftIO . Text.hPutStrLn _loggerHandle . Text.toLazyText $
-      "(" <> display pri <> ") " <> msg
+    forM_ (Text.lines $ Text.toLazyText msg) $ \m -> do
+      liftIO . Text.hPutStrLn _loggerHandle $
+        Text.toLazyText ("(" <> display pri <> ") " <> Text.fromLazyText m)
+
 
 debug :: LoggerIO env m => Builder -> m ()
 debug = log DEBUG
@@ -92,7 +95,6 @@ error = log ERROR
 
 critical :: LoggerIO env m => Builder -> m ()
 critical = log CRITICAL
-
 
 -- | Exit the program with error message
 criticalFailure :: LoggerIO env m => Builder -> m a

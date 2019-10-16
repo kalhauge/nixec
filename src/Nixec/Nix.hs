@@ -98,7 +98,8 @@ nixBuild script = do
   verbose <- view nixVerbose
 
   let a = proc _cmd (_args ++ [ "-E", script ])
-  L.info $ "Running " <> L.displayShow (cmdspec a)
+  L.info $ "Building script: "
+  L.info $ L.displayString script
   out <- liftIO . try $ do
     bracket (openFile "/dev/null" WriteMode) hClose $ \devnull -> do
       let a' = a { delegate_ctlc = False
@@ -117,34 +118,6 @@ withArgs :: HasNix env m => [String] -> m a -> m a
 withArgs _args =
   local (nixBuildCommand._2 %~ (++ _args))
 
--- nixCheckBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
--- nixCheckBuildInput =
---   local (nixVerbose .~ False)
---   . withArgs ["--readonly-mode"]
---   . nixBuildInput
-
--- nixBuildInput :: HasNix env m => Input -> m (Maybe FilePath)
--- nixBuildInput = \case
---   PackageInput p -> do
---     withArgs ["--no-out-link"] $
---       nixBuild =<< nixPackageScript p
---   RuleInput rn -> do
---     output <- dropExtension <$> nixFile rn
---     withArgs ["-o", output] $
---       nixBuild =<< nixRuleScript rn
---   FileInput fp -> do
---     return (Just fp)
---   InInput i ex ->
---    fmap (</> ex) <$> nixBuildInput i
-
--- nixRuleScript :: HasNix env m => RuleName -> m String
--- nixRuleScript rn = do
---   file <- nixFile rn
---   nixPackageScript' ("callPackage" <+> "./" <> fromString file <+> "{}")
-
--- nixPackageScript :: HasNix env m => Package -> m String
--- nixPackageScript = nixPackageScript' . pretty
-
 nixPackageScript' ::
   HasNix env m
   => Nix.NExpr
@@ -161,12 +134,6 @@ nixPackageScript' pkg' = do
       ((Nix.mkSym "import" Nix.@@ (Nix.mkEnvPath "nixpkgs") Nix.@@ Nix.attrsE []) Nix.@. "appendOverlays"
         Nix.@@ Nix.mkList overlays)
       pkg'
-
--- nixBuildAll :: (HasNix env m, Foldable f)
---   => f Input
---   -> m (Maybe [FilePath])
--- nixBuildAll rns = do
---   fmap sequence . forM (toList rns) $ nixBuildInput
 
 ruleNameToNix :: RuleName -> Doc m
 ruleNameToNix =
@@ -185,15 +152,6 @@ inputToShell = \case
   PackageInput r -> nixToShell (pretty r)
   FileInput r -> nixToShell ("../../" <> pretty r)
   InInput r fp -> inputToShell r <> "/" <> pretty fp
-
--- rulesToNix :: (HasNixConfig env, MonadReader env m)
---   => [(RuleName, Rule)]
---   -> m (Doc e)
--- rulesToNix rules = do
---   mkRule <- view nixMkRule
---   let rs = [ (ruleNameToNix rn, ruleToNix mkRule rn r) | (rn, r) <- rules ]
---   return $ "{ nixpkgs ? import <nixpkgs> {} }: with nixpkgs;" <+> attrset rs
-
 
 attrset :: [(Doc m, Doc m)] -> Doc m
 attrset =
@@ -320,32 +278,40 @@ nixMissing missing = Nix.prettyNix $
       [ Nix.Plain "mkdir $out\n"
       , Nix.Plain "echo \"$db\" > $out/extra-paths.csv\n"
       , Nix.Plain "ln -s " , Nix.Antiquoted (Nix.mkRelPath "./."), Nix.Plain " $out/previous\n"
-      , Nix.Plain "nixec-builder -vv --db $out/previous/database.csv --db $out/extra-paths.csv $out"
+      , Nix.Plain "nixec-builder --db $out/previous/database.csv --db $out/extra-paths.csv $out"
       ]
     )
   ]
   where
     inputToNix = \case
-      PackageInput t -> [ Nix.Antiquoted $ Nix.mkSym (packageToText t) ]
-      RuleInput t -> [ Nix.Antiquoted $
-                       Nix.mkSym "callPackage"
-                       Nix.@@ Nix.mkRelPath ("rules" </> ruleNameToString t <.> "nix")
-                       Nix.@@ Nix.attrsE []
-                     ]
-      FileInput t -> [ Nix.Antiquoted $ Nix.mkPath False t ]
-      InInput t b -> inputToNix t ++ [ Nix.Plain (Text.pack $ "/" <> b) ]
+      PackageInput t ->
+        [ Nix.Antiquoted $ Nix.mkSym (packageToText t) ]
+      RuleInput t ->
+        [ Nix.Antiquoted $
+          nixCallFile ("rules" </> ruleNameToString t <.> "nix")
+        ]
+      FileInput t ->
+        [ Nix.Antiquoted $ Nix.mkPath False t ]
+      InInput t b ->
+        inputToNix t ++ [ Nix.Plain (Text.pack $ "/" <> b) ]
   
     mkIStr = Fix . Nix.NStr . Nix.Indented 2
 
+
+nixBuildRules :: (L.HasLogger env, HasNix env m)
+  => FilePath
+  -> [RuleName]
+  -> m (Maybe FilePath)
+nixBuildRules folder rules = do
+  scrpt <- nixPackageScript'
+        $ Nix.mkList [ nixCallFile (folder </> ruleNameToString t <.> "nix") | t <- rules ]
+  nixBuild scrpt
+
+
 nixCallFile :: FilePath -> Nix.NExpr
 nixCallFile fp =
-  Nix.mkSym "callPackage" Nix.@@ Nix.mkPath False fp Nix.@@ Nix.attrsE []
-
-nixCallFileWithDB :: FilePath -> Nix.NExpr
-nixCallFileWithDB fp =
-  let path = Nix.mkPath False fp
-  in Nix.mkSym "callPackage" Nix.@@ path Nix.@@ Nix.attrsE
-     [("database", Nix.mkStr "hello")]
+  Nix.mkSym "callPackage"
+  Nix.@@ Nix.mkPath False fp Nix.@@ Nix.attrsE []
 
 nixstring :: Doc m -> Doc m
 nixstring = enclose

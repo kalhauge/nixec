@@ -110,7 +110,7 @@ packageFromText = Package
 
 packageToText :: Package -> Text.Text
 packageToText (Package n) =
-  Text.intercalate "-" (NonEmpty.toList n)
+  Text.intercalate "." (NonEmpty.toList n)
 
 instance IsString Package where
   fromString = packageFromText . Text.pack

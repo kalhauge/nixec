@@ -1,6 +1,6 @@
 module Main where
 
-import Nixec
+import Nixec.App
 
 main :: IO ()
-main = Nixec.app
+main = Nixec.App.app

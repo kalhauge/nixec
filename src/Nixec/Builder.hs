@@ -1,18 +1,16 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ApplicativeDo #-}
-module Nixec.Config where
+module Nixec.Builder where
 
 -- base
 import Prelude hiding (log)
 import Data.Foldable
 import System.IO.Error
-
--- -- text
--- import qualified Data.Text as Text
 
 -- directory
 import System.Directory
@@ -28,6 +26,7 @@ import qualified Data.Csv as Csv
 
 -- containers
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 -- mtl
 import Control.Monad.Reader
@@ -47,6 +46,7 @@ import Nixec.Data
 import Nixec.Rule
 import qualified Nixec.Logger as L
 import Nixec.Nix
+import Nixec.Monad
 
 data Config = Config
   { _configScope      :: !Scope
@@ -147,10 +147,78 @@ parseConfig = do
 
     tryIOErrorT = ExceptT . liftIO . tryIOError
 
-
-
--- instance HasNixConfig Config where
---   nixConfig = configNixConfig
-
 instance L.HasLogger Config where
   logger = configLogger
+
+-- | The entry point of `Nixec`
+defaultMain ::
+  Nixec Rule
+  -> IO ()
+defaultMain nscript = do
+  iocfg <- execParser $
+    info (parseConfig <**> helper) (header "nixec-builder")
+  cfg <- iocfg
+  mainWithConfig cfg nscript
+
+mainWithConfig :: Config -> Nixec Rule -> IO ()
+mainWithConfig cfg nm = flip runReaderT cfg $ do
+  L.info "Running Nixec"
+  trg <- view configTarget
+
+  pths <- view configPathLookup
+  L.info $ "Running paths" <> L.displayShow pths
+
+  liftIO $ createDirectoryIfMissing True (trg </> "rules")
+  buildDatabase (trg </> "rules") (void . addRule "all" =<< nm) >>= \case
+    Right () -> L.info "Success"
+    Left msg -> do
+      L.info "Missing computations"
+      liftIO . BL.writeFile (trg </> "missing.csv") $
+        Csv.encodeDefaultOrderedByName (toList msg)
+
+      liftIO . writeFile (trg </> "database.nix")
+        $ show (nixMissing msg)
+
+  db <- view configPathLookup
+  liftIO . BL.writeFile (trg </> "database.csv")
+    $ Csv.encodeDefaultOrderedByName (map PathLookup $ Map.toList db)
+
+buildDatabase ::
+  forall env m a.
+  (HasConfig env, L.HasLogger env, MonadReader env m, MonadIO m)
+  => FilePath
+  -> Nixec a
+  -> m (Either (Set.Set Input) a)
+buildDatabase trg = runExceptT . runNixec run where
+  run :: NixecF (ExceptT (Set.Set Input) m b) -> ExceptT (Set.Set Input) m b
+  run = \case
+    AddRule name r x -> do
+      rn <- newRuleName name
+      L.debug $ "Adding rule " <> L.displayShow rn
+      writeRule trg rn r
+      x rn
+
+    Scope name nm x -> do
+      L.debug $ "Entering scope: " <> L.displayShow name
+      r <- inScope name $ runNixec run nm
+      L.debug $ "Exit scope: " <> L.displayShow name
+      run (AddRule name r x)
+
+    Inspect i io na -> do
+      L.debug $ "Inspecting: " <> L.displayShow i
+      lookupDatabase i >>= \case
+        Just output -> do
+          L.debug $ "Lookup succeded"
+          na =<< liftIO (io output)
+        Nothing -> do
+          L.debug $ "Could not be found"
+          throwError (Set.singleton i)
+
+    Seperate n1 n2 n -> do
+      x <- ExceptT $ liftA2 (,)
+          (buildDatabase trg n1) (buildDatabase trg n2) <&> \case
+        (Right a, Right b) -> Right (a, b)
+        (Left s1, Left s2) -> Left (s1 <> s2)
+        (Right _, Left s2) -> Left s2
+        (Left s1, Right _) -> Left s1
+      n x
