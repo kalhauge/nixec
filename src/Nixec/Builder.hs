@@ -53,7 +53,7 @@ data Config = Config
   , _configPathLookup :: !(Map.Map InputFile FilePath)
   , _configTarget     :: !FilePath
   , _configMkRule     :: !Package
-  , _configPrevious   :: !(Maybe FilePath)
+  , _configPrevious   :: !FilePath
   }
 
 -- defaultConfig :: Config
@@ -114,6 +114,9 @@ parseConfig = do
 
   _configLogger <- L.parseLogger
 
+  xconfigPrevious <- strOption $
+    long "previous"
+
   _configMkRule <- pure "mkRule"
 
   xconfigTarget <- strArgument $
@@ -123,6 +126,8 @@ parseConfig = do
   return $ flip runReaderT _configLogger $ do
 
     _configTarget <- liftIO $ makeAbsolute xconfigTarget
+
+    _configPrevious <- liftIO . canonicalizePath $ xconfigPrevious
 
     liftIO (createDirectoryIfMissing True _configTarget)
 
@@ -135,8 +140,6 @@ parseConfig = do
             <> L.displayString msg
           return mempty
 
-    _configPrevious <- strOption $
-      long "previous"
 
     return $ Config {..}
 
@@ -179,8 +182,11 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
       liftIO . BL.writeFile (trg </> "missing.csv") $
         Csv.encodeDefaultOrderedByName (toList missing)
 
-      previous <- canonicalizeOrFail =<< view configPrevious
-      Nixec.Nix.writeDatabase (callFileExpr previous []) (trg </> "database.nix") missing
+      previous <- view configPrevious
+      Nixec.Nix.writeDatabase
+        (trg </> "database.nix")
+        (Nixec.Nix.callFileExpr previous [])
+        missing
 
   db <- view configPathLookup
   liftIO . BL.writeFile (trg </> "database.csv")
