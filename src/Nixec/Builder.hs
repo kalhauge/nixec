@@ -167,7 +167,8 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
   L.info $ L.displayList (map PathLookup . Map.toList $ pths)
 
   liftIO $ createDirectoryIfMissing True (trg </> "rules")
-  L.phase "database" $ buildDatabase (trg </> "rules") (void . addRule "all" =<< nm) >>= \case
+  L.phase "database" $ buildDatabase (trg </> "rules") (void . addRule "all" =<< nm)
+    >>= \case
     Right () -> L.info "Success"
     Left missing -> do
       L.info $ "Missing " <> L.displayShow (Set.size missing) <> " inputs."

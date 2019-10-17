@@ -58,8 +58,8 @@ makePrisms ''CommandArgument
 renderCommands :: [Command] -> Doc m
 renderCommands commands = vsep . concat $
   [ [ "SCRIPTPATH=\"$( cd \"$(dirname \"$0\")\" ; pwd -P )\""
-    , "WORKDIR=''${1:-\"$(pwd)\"}"
-    , "INPUTDIR=''${2:-$SCRIPTPATH}"
+    , "WORKDIR=${1:-\"$(pwd)\"}"
+    , "INPUTDIR=${2:-$SCRIPTPATH}"
     ]
   , [ splitcommand $ concat
       [ [ commandArgToShell (c^.program) ]

@@ -234,7 +234,7 @@ runapp appCmd = do
                 Right (_, ms) ->
                   return $ Left (Set.fromList . V.toList $ ms)
                 Left m ->
-                  L.criticalFailure $ "Missing.csv file "
+                  L.criticalFailure $ "missing.csv file "
                     <> L.displayString fp
                     <> " formated incorrectly: "
                     <> L.displayShow m

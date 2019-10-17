@@ -196,13 +196,13 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
     ]
 
   body = attrsE
-    [ ("name", mkStr (topRuleName rn))
-    , ("buildInputs", toExpr [ p | OnPath p <- r ^. ruleRequires])
-    , ("command", mkSym "builtins.toFile"
+    [ ( "name", mkStr (topRuleName rn))
+    , ( "buildInputs", toExpr [ p | OnPath p <- r ^. ruleRequires])
+    , ( "command", mkSym "builtins.toFile"
         @@ mkStr "run.sh"
         @@ mkIndentedStr 2 (Text.pack . show $ renderCommands (r ^. ruleCommands))
       )
-    , ("unpackPhase", Fix . Nix.NStr . Nix.Indented 2 . List.intercalate [Plain "\n"] $
+    , ( "unpackPhase", Fix . Nix.NStr . Nix.Indented 2 . List.intercalate [Plain "\n"] $
         [ [ Plain "# This is a comment to make sure that the output is put on multiple lines" ]
         , List.intercalate [Plain "\n"]
           [ [ Plain "ln -s "]
@@ -213,12 +213,13 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
         , [ Plain "ln -s $command run.sh" ]
         ]
       )
+    , ( "rulename", mkStr (ruleNameToText rn) )
     , ( "time", mkSym "time" )
     , ( "buildPhase",
         mkIndentedStr 2 . Text.pack . show . vcat $
         [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
         , splitcommand
-          [ "$time/bin/time", "--format", dquotes ("$name,%e,%U,%S,%M,%x")
+          [ "$time/bin/time", "--format", dquotes ("$rulename,%e,%U,%S,%M,%x")
           , "--append", "--output", "times.csv"
           , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
           , "||:"]
