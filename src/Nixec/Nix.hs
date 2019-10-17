@@ -192,12 +192,9 @@ callFileExpr = callPackageExpr . mkPath False
 callPackageExpr :: NExpr -> [ (Text.Text, NExpr) ] -> NExpr
 callPackageExpr e b = mkSym "callPackage" @@ e @@ attrsE b
 
-printExprWithPkgsAndOverlays ::
-  (HasNix env m, L.HasLogger env, AsExpr a)
-  => a
-  -> m ()
+printExprWithPkgsAndOverlays :: (HasNix env m, AsExpr a) => a -> m ()
 printExprWithPkgsAndOverlays =
-  liftIO . print . prettyNix <=< withPkgsAndOverlaysExpr
+  withPkgsAndOverlaysExpr >=> liftIO . print . prettyNix
 
 -- | Write a rule to a folder
 writeRule :: MonadIO m => FilePath -> Package -> RuleName -> Rule -> m ()

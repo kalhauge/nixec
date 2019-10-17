@@ -62,7 +62,7 @@ data AppCommand
 
 parseAppCommand :: Parser AppCommand
 parseAppCommand =
-  hsubparser . fold $
+  subparser . fold $
   [ command "list" (info (pure ListCmd) (progDesc "lists the rules."))
   , command "run" (info (pure RunCmd) (progDesc "runs the rules."))
   , command "to-nix" (info (pure ToNixCmd) (progDesc "output the nix script which can compute the rules."))

@@ -115,7 +115,7 @@ packageToText =
 
 displayPackage :: Package -> LazyText.Builder
 displayPackage (Package n) =
-  foldr1 (\a b -> b <> "." <> a) $ fmap L.display n
+  foldl1 (\a b -> b <> "." <> a) $ fmap L.display n
 
 instance IsString Package where
   fromString = packageFromText . Text.pack
