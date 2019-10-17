@@ -199,7 +199,7 @@ printExprWithPkgsAndOverlays =
 -- | Write a rule to a folder
 writeRule :: MonadIO m => FilePath -> Package -> RuleName -> Rule -> m ()
 writeRule folder mkRule rn r = liftIO $ do
-  let fn = ruleNameToFilePath rn folder
+  let fn = ruleNameToFilePath (Left folder) rn
   createDirectoryIfMissing True (takeDirectory fn)
   writeFile fn . show . prettyNix $ ruleExpr mkRule rn r
 
@@ -210,8 +210,8 @@ writeDatabase fn prev missing = liftIO $ do
 
 rulesExpr :: FilePath -> [RuleName] -> [NExpr]
 rulesExpr folder rules =
-  [ callFileExpr (ruleNameToFilePath t folder) []
-  | t <- rules
+  [ callFileExpr (ruleNameToFilePath (Left folder) rn) []
+  | rn <- rules
   ]
 
 ruleExpr :: Package -> RuleName -> Rule -> NExpr
@@ -237,7 +237,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
         [ [ Plain "# This is a comment to make sure that the output is put on multiple lines" ]
         , List.intercalate [Plain "\n"]
           [ [ Plain "ln -s "]
-            ++ inputFileToNixString i
+            ++ inputFileToNixString (Right (ruleNameScope rn) ) i
             ++ [ Plain (Text.pack $ ' ': fp) ]
           | LinkTo fp i <- r ^. ruleRequires
           ]
@@ -283,7 +283,7 @@ databaseExpr prev missing =
                  [i]
                )
             <> ","
-          ) : inputFileToNixString i
+          ) : inputFileToNixString (Left "rules") i
         | i <- Set.toList missing
         ]
       ]
@@ -300,14 +300,16 @@ databaseExpr prev missing =
 
     mkIStr = Fix . Nix.NStr . Nix.Indented 2
 
-inputFileToNixString :: InputFile -> [Nix.Antiquoted Text.Text Nix.NExpr]
-inputFileToNixString (InputFile i fp) =
-  [ Nix.Antiquoted (toExpr i) ]
-  ++ [ Nix.Plain (Text.pack $ "/" <> fp) | not $ null fp ]
+inputFileToNixString :: Either FilePath Scope -> InputFile -> [Antiquoted Text.Text NExpr]
+inputFileToNixString scp (InputFile i fp) =
+  [ Antiquoted (inputToExprInScope scp i) ]
+  ++ [ Plain (Text.pack $ "/" <> fp) | not $ null fp ]
 
-ruleNameToFilePath :: RuleName -> FilePath -> FilePath
-ruleNameToFilePath r fp =
-  fp </> ruleNameToString r <.> "rule" <.> "nix"
+ruleNameToFilePath :: Either FilePath Scope -> RuleName -> FilePath
+ruleNameToFilePath scp rn =
+  case scp of
+    Left fp -> fp </> ruleNameToString rn <.> "rule" <.> "nix"
+    Right scp' -> ruleNameToString (removeScopePrefix scp' rn) <.> "rule" <.> "nix"
 
 class AsExpr a where
   toExpr :: a -> NExpr
@@ -318,10 +320,10 @@ instance AsExpr NExpr where
 instance AsExpr a => AsExpr [a] where
   toExpr a = mkList (map toExpr a)
 
-instance AsExpr Input where
-  toExpr = \case
-    PackageInput t -> toExpr t
-    RuleInput r    -> callFileExpr (ruleNameToFilePath r "rules") []
-    FileInput t    -> Nix.mkPath False t
+inputToExprInScope :: Either FilePath Scope -> Input -> NExpr
+inputToExprInScope scp = \case
+  PackageInput t -> toExpr t
+  RuleInput rn   -> callFileExpr (ruleNameToFilePath scp rn) []
+  FileInput t    -> Nix.mkPath False t
 
 instance AsExpr Package where toExpr = Nix.mkSym . packageToText

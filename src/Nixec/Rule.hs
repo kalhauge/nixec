@@ -1,4 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE LambdaCase #-}
@@ -24,7 +27,7 @@ import Data.Function
 import Data.String
 import Data.Maybe
 import Data.Data
-import Data.List.NonEmpty (NonEmpty(..), head, nonEmpty)
+import Data.List.NonEmpty (NonEmpty(..), head, nonEmpty, tail)
 import Data.List as List
 
 -- mtl
@@ -47,6 +50,8 @@ newtype RuleName = RuleName
   { unRuleName :: NonEmpty Name
   } deriving (Show, Eq, Ord, Data)
 
+makeWrapped ''RuleName
+
 -- | A Scope is just a list of names.
 type Scope = [Name]
 
@@ -64,6 +69,9 @@ ruleNameToString :: RuleName -> String
 ruleNameToString =
   Text.unpack . ruleNameToText
 
+ruleNameScope :: RuleName -> Scope
+ruleNameScope = Data.List.NonEmpty.tail . unRuleName
+
 ruleNameFromText :: Text.Text -> RuleName
 ruleNameFromText =
   RuleName
@@ -79,6 +87,13 @@ ruleNameInScope :: RuleName -> Scope -> Bool
 ruleNameInScope (RuleName n) sp =
   sp `List.isSuffixOf` toList n
   || toList n `List.isSuffixOf` sp
+
+removeScopePrefix :: Scope -> RuleName -> RuleName
+removeScopePrefix scp rn@(RuleName (n :| s)) =
+  case reverse scp `List.stripPrefix` reverse s of
+    Just s' -> RuleName (n :| reverse s')
+    Nothing -> rn
+
 
 ruleNamePrefixLength :: RuleName -> RuleName -> Int
 ruleNamePrefixLength =
@@ -115,7 +130,7 @@ packageToText =
 
 displayPackage :: Package -> LazyText.Builder
 displayPackage (Package n) =
-  foldl1 (\a b -> b <> "." <> a) $ fmap L.display n
+  foldl1 (\a b -> a <> "." <> b) $ fmap L.display n
 
 instance IsString Package where
   fromString = packageFromText . Text.pack
