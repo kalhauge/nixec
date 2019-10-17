@@ -54,26 +54,19 @@ import Nixec.Rule
 import qualified Nixec.Logger as L
 
 data AppCommand
-  = ListRules
-  | RunRules [RuleName]
+  = ListCmd
+  | RunCmd
+  | ToNixCmd
+  | ToDrvCmd
   deriving (Show, Eq)
 
 parseAppCommand :: Parser AppCommand
 parseAppCommand =
   hsubparser . fold $
-  [ command "list" $
-    info
-    (pure ListRules)
-    (progDesc "list the possible targets.")
-  , command "run" $
-     info
-     ( fmap RunRules
-       . some
-       . argument (maybeReader $ Just . ruleNameFromString)
-       $ metavar "RULE .."
-       <> help "the rules to run."
-     )
-     (progDesc "run a list of rules.")
+  [ command "list" (info (pure ListCmd) (progDesc "lists the rules."))
+  , command "run" (info (pure RunCmd) (progDesc "runs the rules."))
+  , command "to-nix" (info (pure ToNixCmd) (progDesc "output the nix script which can compute the rules."))
+  , command "to-drv" (info (pure ToDrvCmd) (progDesc "output the derivation which can be used to compute the rules."))
   ]
 
 data AppConfig = AppConfig
@@ -83,11 +76,18 @@ data AppConfig = AppConfig
   , _appNixecFolder    :: !FilePath
   , _appDatabase       :: !FilePath
   , _appNixConfig      :: !NixConfig
+  , _appRuleSelector   :: ![RuleName]
   } deriving (Show, Eq)
 
 
 parseAppConfig :: Parser (L.Logger -> IO AppConfig)
 parseAppConfig = do
+  _appRuleSelector <-
+    many
+    . argument (maybeReader $ Just . ruleNameFromString)
+    $ metavar "RULE.."
+    <> help "a list of rules."
+   
   _appCheck <-
     switch $
     long "check"
@@ -109,8 +109,18 @@ parseAppConfig = do
     <> hidden
     <> metavar "ARG"
 
+  _nixSystem <- optional . strOption $
+    long "system"
+    <> help ("the system to run on. Defaults to your system."
+        <> " Options include \"x86_64-linux\", \"x86_64-darwin\", or \"i686-linux\"."
+        <> " If you have configured builders in nix, it will try to use those."
+            )
+    <> hidden
+    <> metavar "SYSTEM"
+
+
   mappNixecFolder <- optional . strOption $
-    long "nixec-folder"
+    long "nixec"
     <> help "the path to the Nixec database. Normally NIXECFILE/../_nixec"
     <> hidden
     <> metavar "NIXECFOLDER"
@@ -130,6 +140,7 @@ parseAppConfig = do
       _appNixConfig = NixConfig
         { _nixOverlays = [ _appNixecFolder </> "overlay.nix" ]
         , _nixBuildCommand = ("nix-build", nixArgs)
+        , _nixSystem = _nixSystem
         }
 
     return $ AppConfig {..}
@@ -147,8 +158,8 @@ type App = ReaderT AppConfig IO
 
 app :: IO ()
 app = do
-  (logger, ioCfg, appCmd) <- execParser $
-    info ((liftA3 (,,) L.parseLogger parseAppConfig parseAppCommand)
+  (appCmd, ioCfg, logger) <- execParser $
+    info ((liftA3 (,,) parseAppCommand parseAppConfig L.parseLogger)
           <**> helper) (header "nixec")
 
   runReaderT (L.debug $ "Read command line arguments. ") logger
@@ -178,17 +189,34 @@ runapp appCmd = do
       L.criticalFailure "Could not create database."
 
   case appCmd of
-    ListRules -> L.phase "list" $ do
+    ListCmd -> L.phase "list" $ do
       forM_ db $ \(rn, _) -> liftIO $ do
         putStrLn $ ruleNameToString rn
 
-    RunRules rns -> L.phase "run" $ do
+    RunCmd -> L.phase "run" $ do
       rules <- view appRulesFolder
+      rns <- view appRuleSelector
       nixBuildRules rules rns >>= \case
-        Just _ -> L.info "success"
+        Just s -> do
+          L.info "success"
+          liftIO $ putStrLn s
         Nothing ->
           L.criticalFailure "could not build the rules."
-     
+
+    ToNixCmd -> L.phase "to-nix" $ do
+      rules <- view appRulesFolder
+      rns <- view appRuleSelector
+      printExprWithPkgsAndOverlays (rulesExpr rules rns)
+
+    ToDrvCmd -> L.phase "to-drv" $ do
+      rules <- view appRulesFolder
+      rns <- view appRuleSelector
+      nixInstantiateWithPkgsAndOverlays (rulesExpr rules rns) >>= \case
+        Just s -> do
+          L.info "success"
+          liftIO $ putStrLn s
+        Nothing ->
+          L.criticalFailure "could not instantiate the rules."
 
   where
     calculateDatabase :: App ()

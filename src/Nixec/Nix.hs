@@ -16,18 +16,24 @@ module Nixec.Nix
   , withArgs
   , HasNix
 
-  -- * Configure Nix-Build
+  -- * Nix tools
   , nixBuild
   , nixBuildWithPkgsAndOverlays
   , nixBuildRules
 
+  , nixInstantiate
+  , nixInstantiateWithPkgsAndOverlays
+
   -- * Write rule
   , writeRule
   , writeDatabase
+
+  , printExprWithPkgsAndOverlays
  
   -- * Expressions
   , databaseExpr
   , ruleExpr
+  , rulesExpr
 
   , withPkgsAndOverlaysExpr
   , callFileExpr
@@ -75,6 +81,7 @@ import System.Process.Typed
 -- base
 import Control.Monad.IO.Class
 import Data.Monoid
+import Data.Foldable
 import System.Exit
 import qualified Data.List as List
 
@@ -90,6 +97,7 @@ import qualified Nixec.Logger as L
 data NixConfig = NixConfig
   { _nixOverlays     :: [ FilePath ]
   , _nixBuildCommand :: (String, [ String ])
+  , _nixSystem       :: Maybe (Text.Text)
   } deriving (Show, Eq)
 
 makeClassy ''NixConfig
@@ -103,10 +111,10 @@ withArgs _args =
 
 -- | Call Nix-Build with an NExpr
 nixBuild ::
-  (HasNix env m, L.HasLogger env)
-  => NExpr
+  (HasNix env m, L.HasLogger env, AsExpr a)
+  => a
   -> m (Maybe FilePath)
-nixBuild expr = L.phase "nix" $ do
+nixBuild (toExpr -> expr) = L.phase "nix" $ do
   (_cmd, _args) <- view nixBuildCommand
 
   let script = show (prettyNix expr)
@@ -129,6 +137,20 @@ nixBuild expr = L.phase "nix" $ do
       forM_ (drop (List.length _list - 10) _list) $ L.info . L.displayLazyText
       return $ Nothing
 
+nixInstantiate ::
+  (HasNix env m, L.HasLogger env, AsExpr a)
+  => a
+  -> m (Maybe FilePath)
+nixInstantiate expr =
+  local (nixBuildCommand._1 .~ "nix-instantiate") $ nixBuild expr
+
+nixInstantiateWithPkgsAndOverlays ::
+  (L.HasLogger env, HasNix env m, AsExpr a)
+  => a
+  -> m (Maybe FilePath)
+nixInstantiateWithPkgsAndOverlays a =
+  nixInstantiate =<< withPkgsAndOverlaysExpr a
+
 -- | Convient wrapper around nixBuild and withPkgsAndOverlaysExpr
 nixBuildWithPkgsAndOverlays ::
   (L.HasLogger env, HasNix env m, AsExpr a)
@@ -136,7 +158,6 @@ nixBuildWithPkgsAndOverlays ::
   -> m (Maybe FilePath)
 nixBuildWithPkgsAndOverlays a =
   nixBuild =<< withPkgsAndOverlaysExpr a
-
 
 -- | Run the expression in a environment where all packages and overlays have
 -- been loaded
@@ -149,7 +170,10 @@ withPkgsAndOverlaysExpr (toExpr -> expr) = do
    liftIO (doesFileExist fp) <&> \b ->
      [ mkSym "import" @@ mkPath False fp | b ]
 
-  let nixpkgs = mkSym "import" @@ mkEnvPath "nixpkgs" Nix.@@ attrsE []
+  system <- view nixSystem
+  let nixpkgs = mkSym "import"
+        @@ mkEnvPath "nixpkgs"
+        @@ attrsE [ ("system", mkStr m) | m <- toList system ]
   return $ mkWith (nixpkgs @. "appendOverlays" @@ mkList overlays) expr
 
 nixBuildRules ::
@@ -158,10 +182,7 @@ nixBuildRules ::
   -> [RuleName]
   -> m (Maybe FilePath)
 nixBuildRules folder rules =
-  nixBuildWithPkgsAndOverlays
-    [ callFileExpr (ruleNameToFilePath t folder) []
-    | t <- rules
-    ]
+  nixBuildWithPkgsAndOverlays (rulesExpr folder rules)
 
 -- | 'callPackage <file> { .. }'
 callFileExpr :: FilePath -> [ (Text.Text, NExpr) ] -> NExpr
@@ -170,6 +191,13 @@ callFileExpr = callPackageExpr . mkPath False
 -- | 'callPackage <expr> { .. }'
 callPackageExpr :: NExpr -> [ (Text.Text, NExpr) ] -> NExpr
 callPackageExpr e b = mkSym "callPackage" @@ e @@ attrsE b
+
+printExprWithPkgsAndOverlays ::
+  (HasNix env m, L.HasLogger env, AsExpr a)
+  => a
+  -> m ()
+printExprWithPkgsAndOverlays =
+  liftIO . print . prettyNix <=< withPkgsAndOverlaysExpr
 
 -- | Write a rule to a folder
 writeRule :: MonadIO m => FilePath -> Package -> RuleName -> Rule -> m ()
@@ -182,6 +210,12 @@ writeRule folder mkRule rn r = liftIO $ do
 writeDatabase :: MonadIO m => FilePath -> Set.Set InputFile -> m ()
 writeDatabase fn missing = liftIO $ do
   writeFile fn . show . prettyNix $ databaseExpr missing
+
+rulesExpr :: FilePath -> [RuleName] -> [NExpr]
+rulesExpr folder rules =
+  [ callFileExpr (ruleNameToFilePath t folder) []
+  | t <- rules
+  ]
 
 ruleExpr :: Package -> RuleName -> Rule -> NExpr
 ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
