@@ -58,5 +58,22 @@ an easy to use single entry point.
 -    TODO: Write documentation.
 
 
+## Setup Instructions
+
+### Setting up remote builders
+
+To setup remote builders create a file with servers with nixos installed. You 
+can add then by adding the option to the `~/.config/nix/nix.conf` file:
+
+``` sh
+builders = ssh://mymachine x86_64-linux - 4; ... more
+```
+
+Look to (the nixos
+manual)[https://nixos.org/nix/manual/#chap-distributed-builds] for 
+more.
+
+
+
 
 

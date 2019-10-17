@@ -1,5 +1,6 @@
-:set -fwarn-unused-binds -fwarn-unused-imports -fWall
+:set -fwarn-unused-binds -fwarn-unused-imports -Wall
 :set -isrc
 :set -iapp
 :load Nixec
+:load Nixec.Builder
 :load Main

@@ -204,9 +204,9 @@ writeRule folder mkRule rn r = liftIO $ do
   writeFile fn . show . prettyNix $ ruleExpr mkRule rn r
 
 -- | Write a rule to a folder
-writeDatabase :: MonadIO m => FilePath -> Set.Set InputFile -> m ()
-writeDatabase fn missing = liftIO $ do
-  writeFile fn . show . prettyNix $ databaseExpr missing
+writeDatabase :: MonadIO m => FilePath -> NExpr -> Set.Set InputFile -> m ()
+writeDatabase fn prev missing = liftIO $ do
+  writeFile fn . show . prettyNix $ databaseExpr prev missing
 
 rulesExpr :: FilePath -> [RuleName] -> [NExpr]
 rulesExpr folder rules =
@@ -260,27 +260,22 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
     , ( "installPhase", mkStr "mkdir -p $out; mv * $out")
     ]
 
-databaseExpr :: Set.Set InputFile -> NExpr
-databaseExpr missing =
-  Nix.mkFunction (
-    Nix.mkParamset (
-      [ ("stdenv", Nothing)
-      , ("callPackage", Nothing)
-      , ("nixec-builder", Nothing)
-      ] ++ [ (packageToText (superPackage p), Nothing)
-           | p <- toListOf (folded.inputFileInput._PackageInput) missing
-           ]
-      )
-      False)
-  $ Nix.mkSym "stdenv.mkDerivation" Nix.@@
-  Nix.attrsE
-  [ ("name", Nix.mkStr "database")
-  , ("phases", Nix.mkStr "buildPhase")
-  , ("buildInputs", Nix.mkList [Nix.mkSym "nixec-builder"])
-  , ("db", Fix . Nix.NStr . Nix.DoubleQuoted $ concat
-      [ [ Nix.Plain "type,value,file,output"]
+databaseExpr :: NExpr -> Set.Set InputFile -> NExpr
+databaseExpr prev missing =
+  mkFunction ( mkParamset ( map (,Nothing) $
+      [ "stdenv" , "callPackage" , "nixec-builder"]
+      ++ [ packageToText (superPackage p)
+         | p <- toListOf (folded.inputFileInput._PackageInput) missing
+         ]
+      ) False)
+  $ mkSym "stdenv.mkDerivation" @@ attrsE
+  [ ("name", mkStr "database")
+  , ("phases", mkStr "buildPhase")
+  , ("buildInputs", mkList [Nix.mkSym "nixec-builder"])
+  , ("db", Fix . NStr . DoubleQuoted $ concat
+      [ [ Plain "type,value,file,output"]
       , concat
-        [ ( Nix.Plain $
+        [ ( Plain $
             "\n"
             <> ( Text.strip . Text.decodeUtf8 . BL.toStrict
                  $ Csv.encodeDefaultOrderedByNameWith
@@ -294,10 +289,10 @@ databaseExpr missing =
       ]
     )
   , ("buildPhase", mkIStr
-      [ Nix.Plain "mkdir $out\n"
-      , Nix.Plain "echo \"$db\" > $out/extra-paths.csv\n"
-      , Nix.Plain "ln -s " , Nix.Antiquoted (Nix.mkRelPath "./."), Nix.Plain " $out/previous\n"
-      , Nix.Plain "nixec-builder -v --db $out/previous/database.csv --db $out/extra-paths.csv $out"
+      [ Plain "mkdir $out\n"
+      , Plain "echo \"$db\" > $out/extra-paths.csv\n"
+      , Plain "ln -s " , Antiquoted (prev), Plain " $out/previous\n"
+      , Plain "nixec-builder -v --previous $out/previous/database.nix --db $out/previous/database.csv --db $out/extra-paths.csv $out"
       ]
     )
   ]
