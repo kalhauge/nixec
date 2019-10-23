@@ -344,11 +344,29 @@ inputFileToNixString scp (InputFile i fp) =
   [ Antiquoted (inputToExprInScope scp i) ]
   ++ [ Plain (Text.pack $ "/" <> fp) | not $ null fp ]
 
+
+-- | Given a scope determine the shortest path to the said
+-- scope
+diffScope :: Scope -> RuleName -> FilePath
+diffScope f (RuleName to') =
+  let (n, bs) = prefix (reverse f) (reverse (toList to'))
+  in List.intercalate "/" (".":(map Text.unpack $ replicate n ".." ++ bs))
+  where
+    prefix al@(a:as) bl@(b:bs)
+      | a == b = prefix as bs
+      | otherwise =
+        (length al, bl)
+    prefix (_:as) [] =
+      (1 + length as, [])
+    prefix [] bs =
+      (0, bs)
+
+
 ruleNameToFilePath :: Either FilePath Scope -> RuleName -> FilePath
 ruleNameToFilePath scp rn =
   case scp of
     Left fp -> fp </> ruleNameToString rn <.> "rule" <.> "nix"
-    Right scp' -> ruleNameToString (removeScopePrefix scp' rn) <.> "rule" <.> "nix"
+    Right scp' -> diffScope scp' rn <.> "rule" <.> "nix"
 
 class AsExpr a where
   toExpr :: a -> NExpr
