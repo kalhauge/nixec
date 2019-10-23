@@ -58,6 +58,7 @@ data AppCommand
   | RunCmd
   | ToNixCmd
   | ToDrvCmd
+  | ShellCmd
   deriving (Show, Eq)
 
 parseAppCommand :: Parser AppCommand
@@ -67,6 +68,7 @@ parseAppCommand =
   , command "run" (info (pure RunCmd) (progDesc "runs the rules."))
   , command "to-nix" (info (pure ToNixCmd) (progDesc "output the nix script which can compute the rules."))
   , command "to-drv" (info (pure ToDrvCmd) (progDesc "output the derivation which can be used to compute the rules."))
+  , command "shell" (info (pure ShellCmd) (progDesc "start a shell with the derivation."))
   ]
 
 data AppConfig = AppConfig
@@ -217,6 +219,14 @@ runapp appCmd = do
           liftIO $ putStrLn s
         Nothing ->
           L.criticalFailure "could not instantiate the rules."
+
+    ShellCmd -> L.phase "shell" $ do
+      rules <- view appRulesFolder
+      view appRuleSelector >>= \case
+        rn:[] -> do
+          nixShellWithPkgsAndOverlays (oneRuleExpr rules rn)
+        rns ->
+          L.criticalFailure $ "expected a single rule, got " <> L.displayShow rns
 
   where
     calculateDatabase :: App ()

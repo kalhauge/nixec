@@ -24,6 +24,9 @@ module Nixec.Nix
   , nixInstantiate
   , nixInstantiateWithPkgsAndOverlays
 
+  , nixShell
+  , nixShellWithPkgsAndOverlays
+
   -- * Write rule
   , writeRule
   , writeDatabase
@@ -33,6 +36,8 @@ module Nixec.Nix
   -- * Expressions
   , databaseExpr
   , ruleExpr
+
+  , oneRuleExpr
   , rulesExpr
 
   , withPkgsAndOverlaysExpr
@@ -137,6 +142,23 @@ nixBuild (toExpr -> expr) = L.phase "nix" $ do
       forM_ (drop (List.length _list - 10) _list) $ L.info . L.displayLazyText
       return $ Nothing
 
+nixShell ::
+  (HasNix env m, L.HasLogger env, AsExpr a)
+  => a
+  -> m ()
+nixShell (toExpr -> expr) = do
+  (_, _args) <- view nixBuildCommand
+
+  let script = show (prettyNix expr)
+
+  let
+    shellProgram
+      = setDelegateCtlc True
+      $ proc "nix-shell" (_args ++ [ "-E", script ])
+
+  L.info $ "Starting shell: "
+  runProcess_ shellProgram
+
 nixInstantiate ::
   (HasNix env m, L.HasLogger env, AsExpr a)
   => a
@@ -148,8 +170,15 @@ nixInstantiateWithPkgsAndOverlays ::
   (L.HasLogger env, HasNix env m, AsExpr a)
   => a
   -> m (Maybe FilePath)
-nixInstantiateWithPkgsAndOverlays a =
-  nixInstantiate =<< withPkgsAndOverlaysExpr a
+nixInstantiateWithPkgsAndOverlays =
+  nixInstantiate <=< withPkgsAndOverlaysExpr
+
+nixShellWithPkgsAndOverlays ::
+  (L.HasLogger env, HasNix env m, AsExpr a)
+  => a
+  -> m ()
+nixShellWithPkgsAndOverlays =
+  nixShell <=< withPkgsAndOverlaysExpr
 
 -- | Convient wrapper around nixBuild and withPkgsAndOverlaysExpr
 nixBuildWithPkgsAndOverlays ::
@@ -210,9 +239,11 @@ writeDatabase fn prev missing = liftIO $ do
 
 rulesExpr :: FilePath -> [RuleName] -> [NExpr]
 rulesExpr folder rules =
-  [ callFileExpr (ruleNameToFilePath (Left folder) rn) []
-  | rn <- rules
-  ]
+  [ oneRuleExpr folder rn | rn <- rules ]
+
+oneRuleExpr :: FilePath -> RuleName -> NExpr
+oneRuleExpr folder rn =
+  callFileExpr (ruleNameToFilePath (Left folder) rn) []
 
 ruleExpr :: Package -> RuleName -> Rule -> NExpr
 ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
@@ -233,6 +264,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
         @@ mkStr "run.sh"
         @@ mkIndentedStr 2 (Text.pack . show $ renderCommands (r ^. ruleCommands))
       )
+    , ( "phases", mkStr "unpackPhase buildPhase installPhase")
     , ( "unpackPhase", Fix . Nix.NStr . Nix.Indented 2 . List.intercalate [Plain "\n"] $
         [ [ Plain "# This is a comment to make sure that the output is put on multiple lines" ]
         , List.intercalate [Plain "\n"]
@@ -258,6 +290,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
         ]
       )
     , ( "installPhase", mkStr "mkdir -p $out; mv * $out")
+    , ( "shellHook", mkStr "cd $(mktemp -d); unpackPhase;")
     ]
 
 databaseExpr :: NExpr -> Set.Set InputFile -> NExpr
