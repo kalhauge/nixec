@@ -152,6 +152,12 @@ collectWith :: Traversable f
 collectWith rulem scps =
   scps <&> \mn -> emptyRule &~ (rulem =<< asLinks mn)
 
+collectLinks :: Traversable f
+  => Nixec (f RuleName)
+  -> Nixec Rule
+collectLinks scps =
+  scps <&> \mn -> emptyRule &~ asLinks mn
+
 listFiles :: HasInputFile a => a -> (FilePath -> Maybe b) -> Nixec [(b, InputFile)]
 listFiles i fm =
   fmap catMaybes . inspect i $ \fp -> do

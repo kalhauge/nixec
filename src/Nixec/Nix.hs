@@ -274,10 +274,23 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
     , ( "configurePhase", Fix . Nix.NStr . Nix.Indented 2 . List.intercalate [Plain "\n"] $
         [ [ Plain "# This is a comment to make sure that the output is put on multiple lines" ]
         , List.intercalate [Plain "\n"]
-          [ [ Plain "ln -s "]
-            ++ inputFileToNixString (Right (ruleNameScope rn) ) i
-            ++ [ Plain (Text.pack $ ' ': fp) ]
-          | LinkTo fp i <- r ^. ruleRequires
+          [ case x of
+              LinkTo fp i ->
+                [ Plain "ln -s "]
+                ++ inputFileToNixString (Right (ruleNameScope rn) ) i
+                ++ [ Plain (Text.pack $ ' ': fp) ]
+              CreateFile fp i ->
+                [ Plain "ln -s "
+                , Antiquoted
+                  (mkSym "builtins.toFile"
+                    @@ mkStr (Text.pack fp)
+                    @@ mkStr i
+                  )
+                , Plain (Text.pack $ ' ': fp)
+                ]
+              OnPath _  -> []
+              Env _ _  -> []
+          | x <- r ^. ruleRequires
           ]
         , [ Plain "ln -s $command run.sh" ]
         ]
