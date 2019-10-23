@@ -270,8 +270,8 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
         @@ mkStr "run.sh"
         @@ mkIndentedStr 2 (Text.pack . show $ renderCommands (r ^. ruleCommands))
       )
-    , ( "phases", mkStr "unpackPhase buildPhase installPhase")
-    , ( "unpackPhase", Fix . Nix.NStr . Nix.Indented 2 . List.intercalate [Plain "\n"] $
+    , ( "phases", mkStr "configurePhase buildPhase installPhase")
+    , ( "configurePhase", Fix . Nix.NStr . Nix.Indented 2 . List.intercalate [Plain "\n"] $
         [ [ Plain "# This is a comment to make sure that the output is put on multiple lines" ]
         , List.intercalate [Plain "\n"]
           [ [ Plain "ln -s "]
@@ -296,7 +296,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
         ]
       )
     , ( "installPhase", mkStr "mkdir -p $out; mv * $out")
-    , ( "shellHook", mkStr "cd $(mktemp -d); unpackPhase;")
+    , ( "shellHook", mkStr "cd $(mktemp -d); sh -c \"$configurePhase\";")
     ]
 
 databaseExpr :: NExpr -> Set.Set InputFile -> NExpr
