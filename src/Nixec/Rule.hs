@@ -216,7 +216,7 @@ data Requirement
   = LinkTo FilePath InputFile
   | OnPath Package
   | Env Text.Text InputFile
-  | CreateFile FilePath Text.Text
+  | CreateFile FilePath Bool Text.Text
   deriving (Show)
 
 infixr 4 ~>
@@ -290,10 +290,14 @@ asLinks :: Traversable f => f RuleName -> RuleM (f CommandArgument)
 asLinks =
   links . fmap (\c -> (toFilePath (topRuleName c), toInputFile c))
 
-createFile :: FilePath -> Text.Text -> RuleM CommandArgument
-createFile fp i = do
-  needs [ CreateFile fp i ]
+createFile :: FilePath -> Bool -> Text.Text -> RuleM CommandArgument
+createFile fp b i = do
+  needs [ CreateFile fp b i ]
   return $ Input fp
+
+createScript :: FilePath -> Text.Text -> RuleM CommandArgument
+createScript fp i = do
+  createFile fp True i
 
 -- ** Intances
 

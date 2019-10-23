@@ -257,6 +257,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
     [ [ "stdenv"
       , "callPackage"
       , "time"
+      , "writeTextFile"
       ]
     , [ packageToText $ superPackage p
       | p <- mkRule : toListOf (folding ruleInputFiles.inputFileInput._PackageInput) r
@@ -279,12 +280,15 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
                 [ Plain "ln -s "]
                 ++ inputFileToNixString (Right (ruleNameScope rn) ) i
                 ++ [ Plain (Text.pack $ ' ': fp) ]
-              CreateFile fp i ->
+              CreateFile fp exe i ->
                 [ Plain "ln -s "
                 , Antiquoted
-                  (mkSym "builtins.toFile"
-                    @@ mkStr (Text.pack fp)
-                    @@ mkStr i
+                  (mkSym "writeTextFile"
+                    @@ attrsE
+                    [ ("name", mkStr (Text.pack fp))
+                    , ("text", mkStr i)
+                    , ("executable", mkBool exe)
+                    ]
                   )
                 , Plain (Text.pack $ ' ': fp)
                 ]
