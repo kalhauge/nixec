@@ -199,11 +199,10 @@ runapp appCmd = do
       rules <- view appRulesFolder
       rns <- view appRuleSelector
       nixBuildRules rules rns >>= \case
-        Just s -> do
+        [] -> L.criticalFailure "could not build the rules."
+        s -> do
           L.info "success"
-          liftIO $ putStrLn s
-        Nothing ->
-          L.criticalFailure "could not build the rules."
+          liftIO $ mapM_ putStrLn s
 
     ToNixCmd -> L.phase "to-nix" $ do
       rules <- view appRulesFolder
@@ -214,11 +213,11 @@ runapp appCmd = do
       rules <- view appRulesFolder
       rns <- view appRuleSelector
       nixInstantiateWithPkgsAndOverlays (rulesExpr rules rns) >>= \case
-        Just s -> do
-          L.info "success"
-          liftIO $ putStrLn s
-        Nothing ->
+        [] ->
           L.criticalFailure "could not instantiate the rules."
+        s -> do
+          L.info "success"
+          liftIO $ mapM_ putStrLn s
 
     ShellCmd -> L.phase "shell" $ do
       rules <- view appRulesFolder
@@ -246,9 +245,9 @@ runapp appCmd = do
         buildFileOrDie db _file =
           withArgs ["-o", db] $ do
             nixBuildWithPkgsAndOverlays (callFileExpr _file []) >>= \case
-              Just _ -> return ()
-              Nothing ->
+              [] ->
                 L.criticalFailure "Could not build database."
+              _ -> return ()
 
 
     readDatabase :: App (Either (Set.Set InputFile) [(RuleName, FilePath)])

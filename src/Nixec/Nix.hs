@@ -118,29 +118,35 @@ withArgs _args =
 nixBuild ::
   (HasNix env m, L.HasLogger env, AsExpr a)
   => a
-  -> m (Maybe FilePath)
-nixBuild (toExpr -> expr) = L.phase "nix" $ do
+  -> m [FilePath]
+nixBuild (toExpr -> expr) = L.phase "build" $ do
   (_cmd, _args) <- view nixBuildCommand
 
   let script = show (prettyNix expr)
 
-  let a = proc _cmd (_args ++ [ "-E", script ])
-  L.info $ "Building script: "
-  L.info $ L.displayString script
+  priority <- view L.loggerPriority
+  let
+    a = proc _cmd $ concat
+      [ _args
+      , [ "-Q" | priority > L.DEBUG ]
+      , [ "-E", script ]
+      ]
+
+  L.debug $ L.displayString script
 
   _stdout <- L.lineConsumer
-  _stderr <- L.lineLogger L.DEBUG
+  _stderr <- L.lineLogger L.INFO
 
   (exit, out, err) <- L.consume _stdout _stderr a
 
   case exit of
     ExitSuccess ->
-      return $ Just (LazyText.unpack . LazyText.strip . LazyText.unlines $ appEndo out [])
+      return . map (LazyText.unpack . LazyText.strip) $ appEndo out []
     e -> do
       L.warning $ "Build failed with " <> L.displayShow e
       let _list = appEndo err []
       forM_ (drop (List.length _list - 10) _list) $ L.info . L.displayLazyText
-      return $ Nothing
+      return $ []
 
 nixShell ::
   (HasNix env m, L.HasLogger env, AsExpr a)
@@ -162,14 +168,14 @@ nixShell (toExpr -> expr) = do
 nixInstantiate ::
   (HasNix env m, L.HasLogger env, AsExpr a)
   => a
-  -> m (Maybe FilePath)
+  -> m [FilePath]
 nixInstantiate expr =
   local (nixBuildCommand._1 .~ "nix-instantiate") $ nixBuild expr
 
 nixInstantiateWithPkgsAndOverlays ::
   (L.HasLogger env, HasNix env m, AsExpr a)
   => a
-  -> m (Maybe FilePath)
+  -> m [FilePath]
 nixInstantiateWithPkgsAndOverlays =
   nixInstantiate <=< withPkgsAndOverlaysExpr
 
@@ -184,7 +190,7 @@ nixShellWithPkgsAndOverlays =
 nixBuildWithPkgsAndOverlays ::
   (L.HasLogger env, HasNix env m, AsExpr a)
   => a
-  -> m (Maybe FilePath)
+  -> m [FilePath]
 nixBuildWithPkgsAndOverlays a =
   nixBuild =<< withPkgsAndOverlaysExpr a
 
@@ -209,7 +215,7 @@ nixBuildRules ::
   (HasNix env m, L.HasLogger env)
   => FilePath
   -> [RuleName]
-  -> m (Maybe FilePath)
+  -> m [FilePath]
 nixBuildRules folder rules =
   nixBuildWithPkgsAndOverlays (rulesExpr folder rules)
 
