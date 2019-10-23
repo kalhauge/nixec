@@ -258,6 +258,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
       , "callPackage"
       , "time"
       , "writeTextFile"
+      , "writeShellScript"
       ]
     , [ packageToText $ superPackage p
       | p <- mkRule : toListOf (folding ruleInputFiles.inputFileInput._PackageInput) r
@@ -267,7 +268,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
   body = attrsE
     [ ( "name", mkStr (topRuleName rn))
     , ( "buildInputs", toExpr [ p | OnPath p <- r ^. ruleRequires])
-    , ( "command", mkSym "builtins.toFile"
+    , ( "command", mkSym "writeShellScript"
         @@ mkStr "run.sh"
         @@ mkIndentedStr 2 (Text.pack . show $ renderCommands (r ^. ruleCommands))
       )
