@@ -100,9 +100,10 @@ import qualified Nixec.Logger as L
 
 
 data NixConfig = NixConfig
-  { _nixOverlays     :: [ FilePath ]
-  , _nixBuildCommand :: (String, [ String ])
-  , _nixSystem       :: Maybe (Text.Text)
+  { _nixOverlays          :: [ FilePath ]
+  , _nixBuildCommand      :: (String, [ String ])
+  , _nixSystem            :: Maybe (Text.Text)
+  , _nixUseLoggerPriority :: L.Priority
   } deriving (Show, Eq)
 
 makeClassy ''NixConfig
@@ -124,6 +125,7 @@ nixBuild (toExpr -> expr) = L.phase "build" $ do
 
   let script = show (prettyNix expr)
 
+  nixPriority <- view nixUseLoggerPriority
   priority <- view L.loggerPriority
   let
     a = proc _cmd $ concat
@@ -134,19 +136,25 @@ nixBuild (toExpr -> expr) = L.phase "build" $ do
 
   L.debug $ L.displayString script
 
-  _stdout <- L.lineConsumer
-  _stderr <- L.lineLogger L.INFO
+  (exit, out) <- do
+    _stdout <- L.lineConsumer
+    _stderr <- L.lineLogger nixPriority
+    (exit, out, err) <- L.consume _stdout _stderr a
 
-  (exit, out, err) <- L.consume _stdout _stderr a
+    when (exit /= ExitSuccess && priority > nixPriority) $ do
+      let err' = appEndo err []
+      forM_ (drop (List.length err' - 15) err')
+        $ L.warning . L.displayLazyText
+
+    return (exit, appEndo out [])
 
   case exit of
     ExitSuccess ->
-      return . map (LazyText.unpack . LazyText.strip) $ appEndo out []
+      return . map (LazyText.unpack . LazyText.strip) $ out
     e -> do
       L.warning $ "Build failed with " <> L.displayShow e
-      let _list = appEndo err []
-      forM_ (drop (List.length _list - 10) _list) $ L.info . L.displayLazyText
       return $ []
+
 
 nixShell ::
   (HasNix env m, L.HasLogger env, AsExpr a)

@@ -120,7 +120,6 @@ parseAppConfig = do
     <> hidden
     <> metavar "SYSTEM"
 
-
   mappNixecFolder <- optional . strOption $
     long "nixec"
     <> help "the path to the Nixec database. Normally NIXECFILE/../_nixec"
@@ -143,6 +142,7 @@ parseAppConfig = do
         { _nixOverlays = [ _appNixecFolder </> "overlay.nix" ]
         , _nixBuildCommand = ("nix-build", nixArgs)
         , _nixSystem = _nixSystem
+        , _nixUseLoggerPriority = L.INFO
         }
 
     return $ AppConfig {..}
@@ -198,7 +198,7 @@ runapp appCmd = do
     RunCmd -> L.phase "run" $ do
       rules <- view appRulesFolder
       rns <- view appRuleSelector
-      nixBuildRules rules rns >>= \case
+      local (nixUseLoggerPriority .~ L.NOTICE) $ nixBuildRules rules rns >>= \case
         [] -> L.criticalFailure "could not build the rules."
         s -> do
           L.info "success"
