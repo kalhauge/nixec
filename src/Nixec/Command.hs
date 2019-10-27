@@ -44,6 +44,8 @@ data CommandArgument
   -- ^ A simple string
   | ConcatArg  Text.Text [ CommandArgument ]
   -- ^ Concatenate the other arguments
+  | DebugArgs
+  -- ^ Add a location for debug arguments $@
   deriving (Show, Eq, Ord, Data)
 
 instance IsString CommandArgument where
@@ -58,8 +60,8 @@ makePrisms ''CommandArgument
 renderCommands :: [Command] -> Doc m
 renderCommands commands = vsep . concat $
   [ [ "SCRIPTPATH=\"$( cd \"$(dirname \"$0\")\" ; pwd -P )\""
-    , "WORKDIR=${1:-\"$(pwd)\"}"
-    , "INPUTDIR=${2:-$SCRIPTPATH}"
+    , "WORKDIR=${WORKDIR:-\"$(pwd)\"}"
+    , "INPUTDIR=${INPUTDIR:-$SCRIPTPATH}"
     ]
   , [ splitcommand $ concat
       [ [ commandArgToShell (c^.program) ]
@@ -83,6 +85,8 @@ renderCommands commands = vsep . concat $
         | otherwise -> pretty i
       ConcatArg t _args ->
         concatWith (\a b -> a <> pretty t <> b) . map commandArgToShell $ _args
+      DebugArgs ->
+        dquotes "$@"
 
 splitcommand :: [Doc m] -> Doc m
 splitcommand =

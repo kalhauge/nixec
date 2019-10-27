@@ -164,6 +164,8 @@ listFiles i fm =
     content <- listDirectory fp
     return $ map (\c -> (,i <./> c) <$> fm c) content
 
+-- TODO Be able to list subpackages.
+
   -- case cfg^.configAction of
   --   ListAction -> do
   --     (a, b) <- computeStrategy (makeRuleName "all"
