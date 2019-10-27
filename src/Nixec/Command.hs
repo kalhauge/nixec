@@ -86,7 +86,7 @@ renderCommands commands = vsep . concat $
       ConcatArg t _args ->
         concatWith (\a b -> a <> pretty t <> b) . map commandArgToShell $ _args
       DebugArgs ->
-        dquotes "$@"
+        "$@"
 
 splitcommand :: [Doc m] -> Doc m
 splitcommand =
