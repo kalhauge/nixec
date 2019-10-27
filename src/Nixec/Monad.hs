@@ -84,21 +84,18 @@ instance MonadFree NixecF Nixec where
 runNixec :: Monad m => (NixecF (m a) -> m a) -> Nixec a -> m a
 runNixec a = iterM a . getFreeNixecF
 
-checkSuccess :: (MonadIO m) => RuleName -> FilePath -> m Bool
-checkSuccess rn output = liftIO $ do
+checkSuccess :: (MonadIO m) => FilePath -> m Bool
+checkSuccess output = liftIO $ do
   (fmap Csv.decodeByName . BL.readFile $ output </> "times.csv") >>= \case
     Right (_, vn) -> do
-      return $ case findOf folded (view $ statsRuleName.to (== rn)) vn of
-        Just stat ->
-          stat^.statsExitCode == 0
-        Nothing -> False
+      return $ noneOf (folded.statsExitCode) (/=0) vn
     Left err -> do
       liftIO . putStrLn $ "Could not parse csv file " ++ output ++ ": " ++ show err
       return False
 
 onSuccess :: RuleName -> Nixec a -> Nixec (Maybe a)
 onSuccess rn n = do
-  b <- inspect (toInputFile rn) $ checkSuccess rn
+  b <- inspect (toInputFile rn) checkSuccess
   if b
   then Just <$> n
   else return Nothing

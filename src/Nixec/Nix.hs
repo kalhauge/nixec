@@ -300,13 +300,12 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
         , [ Plain "ln -s $command run.sh" ]
         ]
       )
-    , ( "rulename", mkStr (ruleNameToText rn) )
     , ( "time", mkSym "time" )
     , ( "buildPhase",
         mkIndentedStr 2 . Text.pack . show . vcat $
-        [ "echo" <+> dquotes "rule,real,user,kernel,maxm,exitcode" <+> ">times.csv"
+        [ "echo" <+> dquotes "real,user,kernel,maxm,exitcode" <+> ">times.csv"
         , splitcommand
-          [ "$time/bin/time", "--format", dquotes ("$rulename,%e,%U,%S,%M,%x")
+          [ "$time/bin/time", "--format", dquotes ("%e,%U,%S,%M,%x")
           , "--append", "--output", "times.csv"
           , "sh", "run.sh", "1>", ">(tee stdout)", "2>", ">(tee stderr >&2)"
           , "||:"]

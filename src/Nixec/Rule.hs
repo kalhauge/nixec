@@ -187,9 +187,10 @@ data Status
   deriving (Eq, Ord, Show)
 
 data NixecStats = NixecStats
-  { _statsRuleName :: RuleName
+  {
+  -- _statsRuleName :: RuleName
   -- , _statsStatus  :: Status
-  , _statsExitCode  :: Int
+    _statsExitCode  :: Int
   } deriving (Show, Eq, Ord)
 
 makeLenses ''NixecStats
@@ -321,7 +322,7 @@ instance Csv.ToField Package where
 
 instance Csv.FromNamedRecord NixecStats where
   parseNamedRecord m = do
-    _statsRuleName <- m Csv..: "rule"
+    -- _statsRuleName <- m Csv..: "rule"
     _statsExitCode <- m Csv..: "exitcode"
     pure $ NixecStats {..}
 
