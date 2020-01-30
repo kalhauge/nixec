@@ -16,34 +16,34 @@
 module Nixec.Monad where
 
 -- base
-import Prelude hiding (log)
-import Data.Maybe
-import Data.Coerce
-import Data.Traversable
-import Control.Monad.IO.Class
+import           Prelude                 hiding ( log )
+import           Data.Maybe
+import           Data.Coerce
+import           Data.Traversable
+import           Control.Monad.IO.Class
 
 -- cassava
-import qualified Data.Csv as Csv
+import qualified Data.Csv                      as Csv
 
 -- directory
-import System.Directory
+import           System.Directory
 
 -- free
-import Control.Monad.Free
-import Control.Monad.Free.TH
+import           Control.Monad.Free
+import           Control.Monad.Free.TH
 
 -- lens
-import Control.Lens hiding ((<.>))
+import           Control.Lens            hiding ( (<.>) )
 
 -- filepath
-import System.FilePath
+import           System.FilePath
 
 -- bytestring
-import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy          as BL
 
 -- Nixec
-import Nixec.Command
-import Nixec.Rule hiding (rule)
+import           Nixec.Command
+import           Nixec.Rule              hiding ( rule )
 
 newtype Nixec a = Nixec
   { getFreeNixecF :: Free NixecF a }
@@ -59,15 +59,23 @@ deriving instance (Functor NixecF)
 
 makeFree_ ''NixecF
 
-addRule        :: MonadFree NixecF m => Name -> Rule -> m RuleName
-scope          :: MonadFree NixecF m => Name -> Nixec Rule -> m RuleName
-inspectInput   :: MonadFree NixecF m => InputFile -> (FilePath -> IO a) -> m a
-seperate       :: MonadFree NixecF m => Nixec a -> Nixec b -> m (a, b)
+-- | Add a new rule, and return the name of the rule for future use.
+addRule :: MonadFree NixecF m => Name -> Rule -> m RuleName
 
+-- | Add a scope of the rule
+scope :: MonadFree NixecF m => Name -> Nixec Rule -> m RuleName
 
-inspect    :: (MonadFree NixecF m, HasInputFile i) => i -> (FilePath -> IO a) -> m a
+-- | Inspect an input and allow it to be used in the computation.
+inspectInput :: MonadFree NixecF m => InputFile -> (FilePath -> IO a) -> m a
+
+-- | Run two actions in parallel
+seperate :: MonadFree NixecF m => Nixec a -> Nixec b -> m (a, b)
+
+-- | Inspect an input, but use the 'HasInputFile' typeclass instead of an
+-- actual 'InputFile'
+inspect
+  :: (MonadFree NixecF m, HasInputFile i) => i -> (FilePath -> IO a) -> m a
 inspect i = inspectInput (toInputFile i)
-
 
 instance Applicative Nixec where
   pure a = Nixec (return a)
@@ -75,8 +83,7 @@ instance Applicative Nixec where
 
 instance Monad Nixec where
   return = pure
-  (Nixec ma) >>= m =
-    Nixec (ma >>= \a -> let Nixec m' = m a in m')
+  (Nixec ma) >>= m = Nixec (ma >>= \a -> let Nixec m' = m a in m')
 
 instance MonadFree NixecF Nixec where
   wrap a = Nixec (Free $ coerce a)
@@ -88,49 +95,41 @@ checkSuccess :: (MonadIO m) => FilePath -> m Bool
 checkSuccess output = liftIO $ do
   (fmap Csv.decodeByName . BL.readFile $ output </> "times.csv") >>= \case
     Right (_, vn) -> do
-      return $ noneOf (folded.statsExitCode) (/=0) vn
+      return $ noneOf (folded . statsExitCode) (/= 0) vn
     Left err -> do
-      liftIO . putStrLn $ "Could not parse csv file " ++ output ++ ": " ++ show err
+      liftIO
+        .  putStrLn
+        $  "Could not parse csv file "
+        ++ output
+        ++ ": "
+        ++ show err
       return False
 
 onSuccess :: RuleName -> Nixec a -> Nixec (Maybe a)
 onSuccess rn n = do
   b <- inspect (toInputFile rn) checkSuccess
-  if b
-  then Just <$> n
-  else return Nothing
+  if b then Just <$> n else return Nothing
 
-
-scopes ::
-  Traversable f
-  => f Name
-  -> (Name -> Nixec Rule)
-  -> Nixec (f RuleName)
+scopes :: Traversable f => f Name -> (Name -> Nixec Rule) -> Nixec (f RuleName)
 scopes = scopesBy id
 
-scopesBy ::
-  Traversable f
+scopesBy
+  :: Traversable f
   => (a -> Name)
   -> f a
   -> (a -> Nixec Rule)
   -> Nixec (f RuleName)
-scopesBy an fa fn =
-  forM fa $ \a -> scope (an a) (fn a)
+scopesBy an fa fn = forM fa $ \a -> scope (an a) (fn a)
 
-rulesBy ::
-  Traversable f
+rulesBy
+  :: Traversable f
   => (a -> Name)
   -> f a
   -> (a -> RuleM ())
   -> Nixec (f RuleName)
-rulesBy an fa fn =
-  forM fa $ \a -> rule (an a) (fn a)
+rulesBy an fa fn = forM fa $ \a -> rule (an a) (fn a)
 
-rules ::
-  Traversable f
-  => f Name
-  -> (Name -> RuleM ())
-  -> Nixec (f RuleName)
+rules :: Traversable f => f Name -> (Name -> RuleM ()) -> Nixec (f RuleName)
 rules = rulesBy id
 
 rule :: Name -> RuleM () -> Nixec RuleName
@@ -142,24 +141,21 @@ collect :: RuleM () -> Nixec Rule
 collect rulem = do
   return $ emptyRule &~ rulem
 
-collectWith :: Traversable f
+collectWith
+  :: Traversable f
   => (f CommandArgument -> RuleM ())
   -> Nixec (f RuleName)
   -> Nixec Rule
-collectWith rulem scps =
-  scps <&> \mn -> emptyRule &~ (rulem =<< asLinks mn)
+collectWith rulem scps = scps <&> \mn -> emptyRule &~ (rulem =<< asLinks mn)
 
-collectLinks :: Traversable f
-  => Nixec (f RuleName)
-  -> Nixec Rule
-collectLinks scps =
-  scps <&> \mn -> emptyRule &~ asLinks mn
+collectLinks :: Traversable f => Nixec (f RuleName) -> Nixec Rule
+collectLinks scps = scps <&> \mn -> emptyRule &~ asLinks mn
 
-listFiles :: HasInputFile a => a -> (FilePath -> Maybe b) -> Nixec [(b, InputFile)]
-listFiles i fm =
-  fmap catMaybes . inspect i $ \fp -> do
-    content <- listDirectory fp
-    return $ map (\c -> (,i <./> c) <$> fm c) content
+listFiles
+  :: HasInputFile a => a -> (FilePath -> Maybe b) -> Nixec [(b, InputFile)]
+listFiles i fm = fmap catMaybes . inspect i $ \fp -> do
+  content <- listDirectory fp
+  return $ map (\c -> (, i <./> c) <$> fm c) content
 
 -- TODO Be able to list subpackages.
 

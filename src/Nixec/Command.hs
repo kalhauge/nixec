@@ -48,6 +48,9 @@ data CommandArgument
   -- ^ Add a location for debug arguments $@
   deriving (Show, Eq, Ord, Data)
 
+argViaShow :: Show a => a -> CommandArgument
+argViaShow = RegularArg . Text.pack . show
+
 instance IsString CommandArgument where
   fromString = RegularArg . Text.pack
 

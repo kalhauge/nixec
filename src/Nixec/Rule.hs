@@ -216,7 +216,7 @@ emptyRule =
 data Requirement
   = LinkTo FilePath InputFile
   | OnPath Package
-  | Env Text.Text InputFile
+  | Env Text.Text Text.Text
   | CreateFile FilePath Bool Text.Text
   deriving (Show)
 
@@ -243,7 +243,7 @@ makePrisms ''Condition
 
 ruleInputFiles :: Rule -> [InputFile]
 ruleInputFiles = toListOf
-  $ ruleRequires.folded.fold [_LinkTo._2, _OnPath.to toInputFile, _Env._2]
+  $ ruleRequires.folded.fold [_LinkTo._2, _OnPath.to toInputFile]
 
 type RuleM = State Rule
 
@@ -257,6 +257,10 @@ needs regs = ruleRequires %= (++ regs)
 cmd :: CommandArgument -> State Command () -> RuleM ()
 cmd name statecmd =
   ruleCommands %= (++ [ Command name [] Nothing Nothing &~ statecmd ])
+
+env :: Text.Text -> Text.Text -> RuleM ()
+env name arg =
+  ruleRequires %= (++ [ Env name arg ])
 
 path :: [ Package ] -> RuleM ()
 path pkgs =

@@ -273,7 +273,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
       ]
     ]
 
-  body = attrsE
+  body = attrsE $
     [ ( "name", mkStr (topRuleName rn))
     , ( "buildInputs", toExpr [ p | OnPath p <- r ^. ruleRequires])
     , ( "command", mkSym "writeShellScript"
@@ -323,6 +323,7 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
     , ( "installPhase", mkStr "mkdir -p $out; mv * $out")
     , ( "shellHook", mkStr "cd $(mktemp -d); sh -c \"$configurePhase\";")
     ]
+    ++ [ (n, mkStr e) | Env n e <- r ^. ruleRequires ]
 
 databaseExpr :: NExpr -> Set.Set InputFile -> NExpr
 databaseExpr prev missing =
