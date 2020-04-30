@@ -247,9 +247,9 @@ writeRule folder mkRule rn r = liftIO $ do
   writeFile fn . show . prettyNix $ ruleExpr mkRule rn r
 
 -- | Write a rule to a folder
-writeDatabase :: MonadIO m => FilePath -> NExpr -> Set.Set InputFile -> m ()
-writeDatabase fn prev missing = liftIO $ do
-  writeFile fn . show . prettyNix $ databaseExpr prev missing
+writeDatabase :: MonadIO m => FilePath -> Set.Set InputFile -> m ()
+writeDatabase fn missing = liftIO $ do
+  writeFile fn . show . prettyNix $ databaseExpr missing
 
 rulesExpr :: FilePath -> [RuleName] -> [NExpr]
 rulesExpr folder rules =
@@ -325,19 +325,19 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
     ]
     ++ [ (n, mkStr e) | Env n e <- r ^. ruleRequires ]
 
-databaseExpr :: NExpr -> Set.Set InputFile -> NExpr
-databaseExpr prev missing =
+databaseExpr :: Set.Set InputFile -> NExpr
+databaseExpr missing =
   mkFunction ( mkParamset ( map (,Nothing) $
-      [ "stdenv" , "callPackage" , "nixec-builder"]
+      [ "writeTextFile" , "callPackage" ]
       ++ [ packageToText (superPackage p)
          | p <- toListOf (folded.inputFileInput._PackageInput) missing
          ]
       ) False)
-  $ mkSym "stdenv.mkDerivation" @@ attrsE
+  $ mkSym "writeTextFile" @@ attrsE
   [ ("name", mkStr "database")
-  , ("phases", mkStr "buildPhase")
-  , ("buildInputs", mkList [Nix.mkSym "nixec-builder"])
-  , ("db", Fix . NStr . DoubleQuoted $ concat
+  -- , ("phases", mkStr "buildPhase")
+  -- , ("buildInputs", mkList [Nix.mkSym "nixec-builder"])
+  , ("text", Fix . NStr . DoubleQuoted $ concat
       [ [ Plain "type,value,file,output"]
       , concat
         [ ( Plain $
@@ -353,17 +353,15 @@ databaseExpr prev missing =
         ]
       ]
     )
-  , ("buildPhase", mkIStr
-      [ Plain "mkdir $out\n"
-      , Plain "echo \"$db\" > $out/extra-paths.csv\n"
-      , Plain "ln -s " , Antiquoted (prev), Plain " $out/previous\n"
-      , Plain "nixec-builder -v --previous $out/previous/database.nix --db $out/previous/database.csv --db $out/extra-paths.csv $out"
-      ]
-    )
+  -- , ("buildPhase", mkIStr
+  --     [ Plain "mkdir $out\n"
+  --     , Plain "echo \"$db\" > $out/extra-paths.csv\n"
+  --     , Plain "nixec-builder -v --db $out/previous/database.csv --db $out/extra-paths.csv $out"
+  --     ]
+  --   )
   ]
   where
-
-    mkIStr = Fix . Nix.NStr . Nix.Indented 2
+    -- mkIStr = Fix . Nix.NStr . Nix.Indented 2
 
 inputFileToNixString :: Either FilePath Scope -> InputFile -> [Antiquoted Text.Text NExpr]
 inputFileToNixString scp (InputFile i fp) =

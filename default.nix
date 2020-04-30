@@ -8,15 +8,18 @@
 
 # The nixec version to use. Override to use other version.
 , nixec ? pkgs.lib.cleanSourceWith 
-  { filter = (path: type: baseNameOf path != ".nix");
+  { filter = (path: type: ! (pkgs.lib.hasSuffix ".nix" path));
     src = pkgs.lib.cleanSource ./.;
   }
 # The root of the evaluation, containing the ./Nixecfile.hs
 # Here the nixecRoot is for developing
-, root ? nixec
+, nixecfile 
 
 # The name of the evaluation
 , name ? "nixec"
+
+# The current database
+, db ? null
 
 # List of haskell source folders that is used in the ./Nixecfile.hs
 , source-overrides ? {}
@@ -40,7 +43,7 @@ let
   };
 
 in let 
-  pkgs = oldpkgs.extend (lib.composeExtensions nixecExtensions (self: deps));
+  pkgs = oldpkgs.extend (lib.composeExtensions nixecExtensions (self: super: deps self));
 
   hpkgs = 
     ( if compiler == "default" 
@@ -64,26 +67,29 @@ in let
 in rec { 
   builder = pkgs.stdenv.mkDerivation { 
     name   = "${name}-builder";
-    src    = root;
+    src    = nixecfile;
     phases = "buildPhase";
     buildInputs = [ 
       ( hpkgs2.ghcWithPackages build-packages )
     ];
     buildPhase = ''
       mkdir -p $out/bin
-      ghc --make $src -rtsopts -threaded -with-rtsopts=-I0 \
-           -XOverloadedStrings \
-          -outputdir=$out/bin/ -o $out/bin/nixec-builder
+      ghc -o $out/bin/nixec-builder \
+          --make $src -rtsopts -threaded -with-rtsopts=-I0 \
+          -XOverloadedStrings \
+          -outputdir=$out/bin/
     '';
   };
 
-  database = pkgs.stdenv.mkDerivation {
-    name        = "${name}-database";
-    src         = root;
-    buildInputs = [ builder pkgs.ghcid ];
-    phases      = "buildPhase";
-    buildPhase  = "nixec-builder database -o $out";
-  };
+  database = 
+    pkgs.stdenv.mkDerivation {
+      name        = "${name}-database";
+      buildInputs = [ builder pkgs.ghcid ];
+      phases      = "buildPhase";
+      buildPhase  = ''
+        nixec-builder ${if db != null then "--db " + pkgs.callPackage db {} else "" } $out
+      '';
+    };
 
   all = [ builder ];
 

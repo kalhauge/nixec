@@ -97,7 +97,6 @@ data AppConfig = AppConfig
   , _appRuleSelector   :: ![RuleName]
   } deriving (Show, Eq)
 
-
 parseAppConfig :: Parser (L.Logger -> IO AppConfig)
 parseAppConfig = do
   _appRuleSelector <-
