@@ -10,7 +10,7 @@ tests of systems. The ultimate goal is that Nixec is going to be:
 -   Composeable: When you know how to compute the parts computing 
     the whole should be easy.
 
--   Idempotent: You only have to re-run the parts that have changed,
+-   Idempotent: You only have to re-run the parts that have changed
     when you change your code.
 
 -   Offloadable: You should not have to run your evaluation setup on your
@@ -56,7 +56,6 @@ an easy to use single entry point.
 -    TODO: Create executable, which can set everything up.
 -    TODO: Work on export options.
 -    TODO: Write documentation.
-
 
 ## Setup Instructions
 

@@ -7,3 +7,4 @@ dist
 .ghc.environment.*
 dist-newstyle
 nixec.cabal
+result
