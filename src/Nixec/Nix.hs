@@ -20,6 +20,7 @@ module Nixec.Nix
   , nixBuild
   , nixBuildWithPkgsAndOverlays
   , nixBuildRules
+  , nixBuildFile
 
   , nixInstantiate
   , nixInstantiateWithPkgsAndOverlays
@@ -135,6 +136,42 @@ nixBuild (toExpr -> expr) = L.phase "build" $ do
       ]
 
   L.debug $ L.displayString script
+
+  (exit, out) <- do
+    _stdout <- L.lineConsumer
+    _stderr <- L.lineLogger nixPriority
+    (exit, out, err) <- L.consume _stdout _stderr a
+
+    when (exit /= ExitSuccess && priority > nixPriority) $ do
+      let err' = appEndo err []
+      forM_ (drop (List.length err' - 15) err')
+        $ L.warning . L.displayLazyText
+
+    return (exit, appEndo out [])
+
+  case exit of
+    ExitSuccess ->
+      return . map (LazyText.unpack . LazyText.strip) $ out
+    e -> do
+      L.warning $ "Build failed with " <> L.displayShow e
+      return $ []
+      
+-- | Call Nix-Build with an file
+nixBuildFile ::
+  (HasNix env m, L.HasLogger env)
+  => FilePath
+  -> m [FilePath]
+nixBuildFile file = L.phase "build" $ do
+  (_cmd, _args) <- view nixBuildCommand
+
+  nixPriority <- view nixUseLoggerPriority
+  priority <- view L.loggerPriority
+  let
+    a = proc _cmd $ concat
+      [ _args
+      , [ "-Q" | priority > L.DEBUG ]
+      , [ file ]
+      ]
 
   (exit, out) <- do
     _stdout <- L.lineConsumer
@@ -328,30 +365,27 @@ ruleExpr mkRule rn r = mkFunction header (toExpr mkRule @@ body) where
 databaseExpr :: Set.Set InputFile -> NExpr
 databaseExpr missing =
   mkFunction ( mkParamset ( map (,Nothing) $
-      [ "writeTextFile" , "callPackage" ]
+      [ "writeTextFile", "lib", "callPackage" ]
       ++ [ packageToText (superPackage p)
          | p <- toListOf (folded.inputFileInput._PackageInput) missing
          ]
       ) False)
   $ mkSym "writeTextFile" @@ attrsE
-  [ ("name", mkStr "database")
+  [ ("name", mkStr "database.csv")
   -- , ("phases", mkStr "buildPhase")
   -- , ("buildInputs", mkList [Nix.mkSym "nixec-builder"])
-  , ("text", Fix . NStr . DoubleQuoted $ concat
-      [ [ Plain "type,value,file,output"]
-      , concat
-        [ ( Plain $
-            "\n"
-            <> ( Text.strip . Text.decodeUtf8 . BL.toStrict
-                 $ Csv.encodeDefaultOrderedByNameWith
-                 (Csv.defaultEncodeOptions { Csv.encIncludeHeader = False })
-                 [i]
-               )
-            <> ","
-          ) : inputFileToNixString (Left "rules") i
+  , ("text", mkSym "lib.concatStrings" @@ mkList (
+      mkStr "type,value,file,output\n"
+      : [ let csvNames = Plain $
+                ( Text.strip . Text.decodeUtf8 . BL.toStrict
+                   $ Csv.encodeDefaultOrderedByNameWith
+                   (Csv.defaultEncodeOptions { Csv.encIncludeHeader = False })
+                   [i]
+                ) <> ","
+          in Fix . Nix.NStr . DoubleQuoted $ (csvNames : inputFileToNixString (Left "rules") i ++ [Plain "\n"])
         | i <- Set.toList missing
         ]
-      ]
+      )
     )
   -- , ("buildPhase", mkIStr
   --     [ Plain "mkdir $out\n"

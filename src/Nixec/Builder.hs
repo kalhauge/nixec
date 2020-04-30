@@ -179,7 +179,7 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
         Csv.encodeDefaultOrderedByName (toList missing)
 
       Nixec.Nix.writeDatabase
-        (trg </> "database.nix")
+        (trg </> "generate.nix")
         -- (Nixec.Nix.callFileExpr "hello" [])
         missing
 

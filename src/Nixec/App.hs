@@ -91,7 +91,7 @@ data AppConfig = AppConfig
   { _appLogger         :: !L.Logger
   , _appCheck          :: !Bool
   , _appNixecfile      :: !FilePath
-  , _appNixecFolder    :: !FilePath
+  -- , _appNixecFolder    :: !FilePath
   , _appDatabase       :: !FilePath
   , _appNixConfig      :: !NixConfig
   , _appRuleSelector   :: ![RuleName]
@@ -134,13 +134,13 @@ parseAppConfig = do
     <> hidden
     <> metavar "SYSTEM"
 
-  mappNixecFolder <-
+  mappNixecDatabase <-
     optional
     .  strOption
     $  long "nixec"
-    <> help "the path to the Nixec database. Normally NIXECFILE/../_nixec"
+    <> help "the path to the Nixec database. Normally NIXECFILE/../nixecdb"
     <> hidden
-    <> metavar "NIXECFOLDER"
+    <> metavar "NIXECDB"
 
   pure $ \_appLogger -> do
     _appNixecfile <- checkFileType ioAppNixecfile >>= \case
@@ -152,11 +152,10 @@ parseAppConfig = do
           <> L.displayString ioAppNixecfile
           <> " to be a file."
 
-    let _appNixecFolder =
-          fromMaybe (takeDirectory _appNixecfile </> "_nixec") mappNixecFolder
-        _appDatabase  = _appNixecFolder </> "database"
+    let _appDatabase =
+          fromMaybe (takeDirectory _appNixecfile </> "nixecdb") mappNixecDatabase
         _appNixConfig = NixConfig
-          { _nixOverlays          = [_appNixecFolder </> "overlay.nix"]
+          {  _nixOverlays         = [] -- _appNixecFolder </> "overlay.nix"]
           , _nixBuildCommand      = ("nix-build", nixArgs)
           , _nixSystem            = _nixSystem
           , _nixUseLoggerPriority = L.INFO
@@ -252,20 +251,22 @@ runapp appCmd = do
   calculateDatabase = L.phase "compute db" $ do
     L.info "Calculating the database"
 
-    folder <- view appNixecFolder
-    let db = folder </> "database"
-    buildFileOrDie db (folder </> "default.nix")
+    db <- view appDatabase
+    withArgs ["-o", db, "-A", "database"] $ do
+      nixBuildFile "./default.nix" >>= \case
+        [] -> L.criticalFailure "Could not build database."
+        _  -> return ()
     go db
    where
     go db = do
-      let _file = db </> "database.nix"
+      let _file = db </> "generate.nix"
       b <- liftIO $ doesFileExist _file
-      when b (buildFileOrDie db _file >> go db)
-
-    buildFileOrDie db _file = withArgs ["-o", db] $ do
-      nixBuildWithPkgsAndOverlays (callFileExpr _file []) >>= \case
-        [] -> L.criticalFailure "Could not build database."
-        _  -> return ()
+      when b $ do 
+        withArgs ["-o", db, "-A", "database", "--arg", "db", _file ] $ do
+          nixBuildFile "./default.nix"  >>= \case
+            [] -> L.criticalFailure "Could not build database."
+            _  -> return ()
+        go db
 
 
   readDatabase :: App (Either (Set.Set InputFile) [(RuleName, FilePath)])

@@ -70,7 +70,7 @@ in rec {
     src    = nixecfile;
     phases = "buildPhase";
     buildInputs = [ 
-      ( hpkgs2.ghcWithPackages build-packages )
+      ( hpkgs2.ghcWithPackages build-packages ) nixec
     ];
     buildPhase = ''
       mkdir -p $out/bin
@@ -87,14 +87,15 @@ in rec {
       buildInputs = [ builder pkgs.ghcid ];
       phases      = "buildPhase";
       buildPhase  = ''
-        nixec-builder ${if db != null then "--db " + pkgs.callPackage db {} else "" } $out
+        ${lib.optionalString (db != null) "echo 'Using-missing: ${db}'"}
+        nixec-builder -v ${if db != null then "--db " + pkgs.callPackage db {} else "" } $out
       '';
     };
 
   all = [ builder ];
 
   nixec = hpkgs2.nixec;
-  
+
   deps = deps' pkgs;
 }
 
