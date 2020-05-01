@@ -7,7 +7,7 @@
 , compiler ? "default"
 
 # The nixec version to use. Override to use other version.
-, nixec ? pkgs.lib.cleanSourceWith 
+, nixec-src ? pkgs.lib.cleanSourceWith 
   { filter = (path: type: ! (pkgs.lib.hasSuffix ".nix" path));
     src = pkgs.lib.cleanSource ./.;
   }
@@ -21,6 +21,9 @@
 # The current database
 , db ? null
 
+# The current target
+, target ? null
+
 # List of haskell source folders that is used in the ./Nixecfile.hs
 , source-overrides ? {}
 
@@ -29,21 +32,9 @@
 
 # Postprocessing
 , postprocess ? {}
-
-# Evaluation dependencies. This is where we should put our depenencies, for the
-# entir evaluation.
-, deps ? pkgs: {}
 }:
 let 
-  oldpkgs = pkgs;
-
-  inherit (oldpkgs) lib haskell;
-
-  nixecExtensions = self: super: {
-  };
-
-in let 
-  pkgs = oldpkgs.extend (lib.composeExtensions nixecExtensions (self: super: deps self));
+  inherit (pkgs) lib haskell;
 
   hpkgs = 
     ( if compiler == "default" 
@@ -54,7 +45,7 @@ in let
   hpkgs2 = hpkgs.extend (
     lib.composeExtensions 
       ( haskell.lib.packageSourceOverrides
-      ({ nixec = nixec; 
+      ({ nixec = nixec-src; 
          dirtree = import nix/fix/dirtree.nix;
        } // source-overrides)
       )
@@ -62,15 +53,13 @@ in let
       )
     );
 
-    deps' = deps;
-    nixec' = nixec;
 in rec { 
   builder = pkgs.stdenv.mkDerivation { 
     name   = "${name}-builder";
     src    = nixecfile;
     phases = "buildPhase";
     buildInputs = [ 
-      ( hpkgs2.ghcWithPackages build-packages ) nixec
+      ( hpkgs2.ghcWithPackages build-packages ) hpkgs2.nixec
     ];
     buildPhase = ''
       mkdir -p $out/bin
@@ -92,11 +81,13 @@ in rec {
       '';
     };
 
+  rules = assert (target != null); pkgs.callPackage target {};
+
   all = [ builder ];
 
   nixec = hpkgs2.nixec;
 
-  deps = deps' pkgs;
+  inherit pkgs;
 }
 
 
