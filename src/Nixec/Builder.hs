@@ -31,6 +31,10 @@ import qualified Data.Set as Set
 -- mtl
 import Control.Monad.Reader
 import Control.Monad.Except
+import Control.Monad.Writer
+
+-- transformers
+import Control.Monad.Trans.Maybe
 
 -- bytestring
 import qualified Data.ByteString.Lazy as BL
@@ -172,16 +176,16 @@ mainWithConfig cfg nm = flip runReaderT cfg $ do
   liftIO $ createDirectoryIfMissing True (trg </> "rules")
   L.phase "database" $ buildDatabase (trg </> "rules") (void . addRule "all" =<< nm)
     >>= \case
-    Right () -> L.info "Success"
-    Left missing -> do
-      L.info $ "Missing " <> L.displayShow (Set.size missing) <> " inputs."
-      liftIO . BL.writeFile (trg </> "missing.csv") $
-        Csv.encodeDefaultOrderedByName (toList missing)
-
+    (Just (), _) -> 
+      L.info "Success"
+    (Nothing, inspected) -> do
+      L.info $ "Inspected " <> L.displayShow (Set.size inspected) <> " inputs."
+      -- liftIO . BL.writeFile (trg </> "inspected.csv") $
+      --   Csv.encodeDefaultOrderedByName (toList inspected)
       Nixec.Nix.writeDatabase
         (trg </> "generate.nix")
         -- (Nixec.Nix.callFileExpr "hello" [])
-        missing
+        inspected
 
   db <- view configPathLookup
   liftIO . BL.writeFile (trg </> "database.csv")
@@ -192,9 +196,10 @@ buildDatabase ::
   (HasConfig env, L.HasLogger env, MonadReader env m, MonadIO m)
   => FilePath
   -> Nixec a
-  -> m (Either (Set.Set InputFile) a)
-buildDatabase trg = runExceptT . runNixec run where
-  run :: NixecF (ExceptT (Set.Set InputFile) m b) -> ExceptT (Set.Set InputFile) m b
+  -> m (Maybe a, Set.Set InputFile)
+buildDatabase trg = runWriterT . runMaybeT . runNixec run where
+  run :: NixecF (MaybeT (WriterT (Set.Set InputFile) m) b) 
+      -> MaybeT (WriterT (Set.Set InputFile) m) b
   run = \case
     AddRule name r x -> do
       rn <- newRuleName name
@@ -210,19 +215,18 @@ buildDatabase trg = runExceptT . runNixec run where
 
     InspectInput i io na -> do
       L.debug $ "Inspecting: " <> L.displayShow i
+      tell (Set.singleton i)
       lookupDatabase i >>= \case
         Just output -> do
           L.debug $ "Lookup succeded"
           na =<< liftIO (io output)
         Nothing -> do
           L.debug $ "Could not be found"
-          throwError (Set.singleton i)
+          fail "Missing dependencies"
 
     Seperate n1 n2 n -> do
-      x <- ExceptT $ liftA2 (,)
-          (buildDatabase trg n1) (buildDatabase trg n2) <&> \case
-        (Right a, Right b) -> Right (a, b)
-        (Left s1, Left s2) -> Left (s1 <> s2)
-        (Right _, Left s2) -> Left s2
-        (Left s1, Right _) -> Left s1
+      x <- MaybeT . WriterT $ do 
+        (m1, s1) <- buildDatabase trg n1 
+        (m2, s2) <- buildDatabase trg n2
+        return (liftA2 (,) m1 m2, s1 <> s2)
       n x

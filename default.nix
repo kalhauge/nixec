@@ -77,7 +77,11 @@ in rec {
       phases      = "buildPhase";
       buildPhase  = ''
         ${lib.optionalString (db != null) "echo 'Using-missing: ${db}'"}
-        nixec-builder -v ${if db != null then "--db " + pkgs.callPackage db {} else "" } $out
+        nixec-builder -v ${
+          if db != null then 
+          "--db ${pkgs.callPackage (db + "/generate.nix") {}}"
+          else "" 
+        } $out
       '';
     };
 

@@ -262,7 +262,7 @@ runapp appCmd = do
       let _file = db </> "generate.nix"
       b <- liftIO $ doesFileExist _file
       when b $ do 
-        withArgs ["-o", db, "-A", "database", "--arg", "db", _file ] $ do
+        withArgs ["-o", db, "-A", "database", "--arg", "db", db ] $ do
           nixBuildFile "./default.nix"  >>= \case
             [] -> L.criticalFailure "Could not build database."
             _  -> return ()
